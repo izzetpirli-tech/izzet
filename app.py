@@ -178,7 +178,7 @@ def db_set(key, value):
 # VERİ YÖNETİMİ
 # ─────────────────────────────────────────────
 def veriler_yukle():
-    """Tüm uygulama verilerini yükle"""
+    """Tüm uygulama verilerini yükle - her zaman DB'den taze oku"""
     varsayilan = {
         "stoklar": {k: 0.0 for k in VARSAYILAN_RECETE},
         "detayli_stok": [],
@@ -193,20 +193,44 @@ def veriler_yukle():
         },
         "aktif_recete_adi": "Standart Soyalı"
     }
-    kayitli = db_get("ana_veri")
-    if kayitli:
-        # Eksik anahtarları varsayılanla doldur
-        for k, v in varsayilan.items():
-            if k not in kayitli:
-                kayitli[k] = v
-        return kayitli
+    try:
+        # Cache'siz direkt DB sorgusu
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT value FROM veriler WHERE key = 'ana_veri'")
+        row = cur.fetchone()
+        cur.close()
+        
+        if row:
+            kayitli = row['value']
+            if isinstance(kayitli, str):
+                kayitli = json.loads(kayitli)
+            # Eksik anahtarları varsayılanla doldur
+            for k, v in varsayilan.items():
+                if k not in kayitli:
+                    kayitli[k] = v
+            return kayitli
+    except Exception as e:
+        st.error(f"Veri yükleme hatası: {e}")
     return varsayilan
 
 def veriler_kaydet(veriler):
-    """Verileri kaydet ve cache'i temizle"""
-    db_set("ana_veri", veriler)
-    if 'veriler' in st.session_state:
+    """Verileri DB'ye kaydet ve session'ı güncelle"""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        veri_json = json.dumps(veriler, ensure_ascii=False)
+        cur.execute("""
+            INSERT INTO veriler (key, value) VALUES ('ana_veri', %s::jsonb)
+            ON CONFLICT (key) DO UPDATE SET value = %s::jsonb, updated_at = NOW()
+        """, (veri_json, veri_json))
+        cur.close()
+        # Session'ı da güncelle
         st.session_state.veriler = veriler
+        return True
+    except Exception as e:
+        st.error(f"Kaydetme hatası: {e}")
+        return False
 
 def sayiya_cevir(s):
     try:
@@ -1036,12 +1060,32 @@ def ayarlar_sayfasi(v):
         if yuklenen:
             if st.button("⚠️ Geri Yükle (Mevcut veriler silinir!)", type="secondary"):
                 try:
-                    yeni_veri = json.load(yuklenen)
-                    veriler_kaydet(yeni_veri)
-                    st.success("✅ Veriler geri yüklendi!")
-                    st.rerun()
-                except:
-                    st.error("❌ Geçersiz JSON dosyası!")
+                    icerik = yuklenen.read()
+                    yeni_veri = json.loads(icerik.decode('utf-8'))
+                    
+                    # Eksik alanları doldur
+                    for h in yeni_veri.get('hareketler', []):
+                        if 'fiyat' not in h: h['fiyat'] = 0
+                        if 'fatura' not in h: h['fatura'] = '-'
+                        if 'parti' not in h: h['parti'] = '-'
+                        if 'islem' not in h: h['islem'] = 'Giriş'
+                    
+                    for s in yeni_veri.get('detayli_stok', []):
+                        if 'kalan' not in s: s['kalan'] = s.get('miktar', 0)
+                        if 'fatura' not in s: s['fatura'] = '-'
+                        if 'parti' not in s: s['parti'] = '-'
+                    
+                    # DB'ye kaydet
+                    basarili = veriler_kaydet(yeni_veri)
+                    if basarili:
+                        # Session'ı temizle, DB'den taze yüklensin
+                        st.session_state.veriler = yeni_veri
+                        st.success(f"✅ {len(yeni_veri.get('hareketler',[]))} hareket, {len(yeni_veri.get('detayli_stok',[]))} stok kaydı yüklendi!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Kaydetme başarısız!")
+                except Exception as e:
+                    st.error(f"❌ Hata: {e}")
 
 # ─────────────────────────────────────────────
 # ANA UYGULAMA
@@ -1060,11 +1104,9 @@ def main():
         login_sayfasi()
         return
     
-    # Verileri yükle
-    if 'veriler' not in st.session_state:
-        st.session_state.veriler = veriler_yukle()
-    
-    v = st.session_state.veriler
+    # Verileri her zaman DB'den taze yükle
+    v = veriler_yukle()
+    st.session_state.veriler = v
     
     # Menü
     menu = sidebar_menu()
