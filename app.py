@@ -651,14 +651,35 @@ def depom_sayfasi(v):
                 paket_secenekler = [0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
                 paket_kg = st.selectbox("Paket Ağırlığı (KG)", paket_secenekler, index=4, key=f"paket_{hedef['parti']}")
                 kopya = int(hedef.get("miktar", 0) / paket_kg) if paket_kg > 0 else 0
-                st.info(f"""
-**ÜRÜN:** MANTI ({etiket_tipi})
-**AĞIRLIK:** {int(paket_kg*1000) if paket_kg < 1 else int(paket_kg)} {"GR" if paket_kg < 1 else "KG"}
-**PARTİ NO:** {hedef["parti"]}
-**ÜRETİM TARİHİ:** {hedef["tarih"]}
-**SKT:** {skt}
-**KOPYA ADEDİ:** {kopya}
-                """)
+                agirlik_str = f"{int(paket_kg*1000)} GR" if paket_kg < 1 else f"{int(paket_kg)} KG"
+                st.markdown(f"""
+<div style="background:#f0f7ff;border:1px solid #007AFF;border-radius:10px;padding:14px;margin-top:8px;line-height:2.2">
+<div style="display:flex;justify-content:space-between;border-bottom:1px solid #d0e4ff;padding-bottom:6px;margin-bottom:6px">
+  <span style="color:#555;font-size:13px">ÜRÜN</span>
+  <span style="font-weight:700;color:#1D1D1F">MANTI ({etiket_tipi})</span>
+</div>
+<div style="display:flex;justify-content:space-between;border-bottom:1px solid #d0e4ff;padding-bottom:6px;margin-bottom:6px">
+  <span style="color:#555;font-size:13px">AĞIRLIK</span>
+  <span style="font-weight:700;color:#1D1D1F">{agirlik_str}</span>
+</div>
+<div style="display:flex;justify-content:space-between;border-bottom:1px solid #d0e4ff;padding-bottom:6px;margin-bottom:6px">
+  <span style="color:#555;font-size:13px">PARTİ NO</span>
+  <span style="font-weight:700;color:#007AFF">{hedef["parti"]}</span>
+</div>
+<div style="display:flex;justify-content:space-between;border-bottom:1px solid #d0e4ff;padding-bottom:6px;margin-bottom:6px">
+  <span style="color:#555;font-size:13px">ÜRETİM TARİHİ</span>
+  <span style="font-weight:700;color:#1D1D1F">{hedef["tarih"]}</span>
+</div>
+<div style="display:flex;justify-content:space-between;border-bottom:1px solid #d0e4ff;padding-bottom:6px;margin-bottom:6px">
+  <span style="color:#555;font-size:13px">SKT</span>
+  <span style="font-weight:700;color:#FF3B30">{skt}</span>
+</div>
+<div style="display:flex;justify-content:space-between">
+  <span style="color:#555;font-size:13px">KOPYA ADEDİ</span>
+  <span style="font-weight:700;color:#34C759">{kopya} adet</span>
+</div>
+</div>
+""", unsafe_allow_html=True)
 
             with col_sag:
                 st.markdown("**🚚 Sevkiyat Takibi**")
@@ -667,8 +688,17 @@ def depom_sayfasi(v):
                 st.metric("Net Dağıtılabilir", f"{net:.2f} KG")
                 notlar = st.text_input("Notlar", value=hedef.get("uretim_notu", ""), key=f"not_{hedef['parti']}")
 
-                st.markdown("**Yeni Sevkiyat Ekle:**")
+                # Excel kopyala-yapıştır alanı
+                st.markdown("**📋 Excel'den Yapıştır** *(Tarih → Firma → KG → Fatura sırası)*")
+                paste_text = st.text_area(
+                    "Excel'den kopyaladığın satırları buraya yapıştır",
+                    height=100,
+                    placeholder="01.03.2026\tFirma A\t50\tFAT-001",
+                    key=f"paste_{hedef['parti']}"
+                )
+
                 with st.form(f"sevk_form_{hedef['parti']}"):
+                    st.markdown("**Veya tek satır ekle:**")
                     c1, c2 = st.columns(2)
                     with c1:
                         s_tarih = st.date_input("Tarih")
@@ -676,20 +706,55 @@ def depom_sayfasi(v):
                     with c2:
                         s_miktar = st.number_input("Miktar (KG)", min_value=0.0, step=0.5)
                         s_fatura = st.text_input("Fatura No")
-                    col_b1, col_b2 = st.columns(2)
+                    col_b1, col_b2, col_b3 = st.columns(3)
                     with col_b1:
-                        ekle = st.form_submit_button("➕ Ekle & Kaydet", type="primary")
+                        excel_aktar = st.form_submit_button("📋 Excel'i Aktar", type="primary")
                     with col_b2:
-                        sadece_kaydet = st.form_submit_button("💾 Sadece Kaydet")
+                        ekle = st.form_submit_button("➕ Tek Ekle")
+                    with col_b3:
+                        sadece_kaydet = st.form_submit_button("💾 Kaydet")
 
                     mevcut_sevk = list(hedef.get("sevkiyat_detay", []))
+
+                    if excel_aktar and paste_text.strip():
+                        satirlar = paste_text.strip().split("\n")
+                        eklenen = 0
+                        hatalar = []
+                        for satir in satirlar:
+                            satir = satir.strip()
+                            if not satir:
+                                continue
+                            # Tab veya birden fazla boşluk ile ayır
+                            kolonlar = [k.strip() for k in satir.replace("\t", "\t").split("\t")]
+                            if len(kolonlar) < 3:
+                                kolonlar = [k.strip() for k in satir.split() if k.strip()]
+                            if len(kolonlar) >= 3:
+                                try:
+                                    tarih_col = kolonlar[0]
+                                    firma_col = kolonlar[1]
+                                    kg_col = float(str(kolonlar[2]).replace(",", "."))
+                                    fat_col = kolonlar[3] if len(kolonlar) > 3 else "-"
+                                    mevcut_sevk.append({"tarih": tarih_col, "firma": firma_col, "miktar": kg_col, "fatura": fat_col})
+                                    eklenen += 1
+                                except Exception as ex:
+                                    hatalar.append(satir)
+                        v["hareketler"][hedef_global_idx]["sevkiyat_detay"] = mevcut_sevk
+                        v["hareketler"][hedef_global_idx]["fire_orani"] = str(fire)
+                        v["hareketler"][hedef_global_idx]["uretim_notu"] = notlar
+                        veriler_kaydet(v)
+                        if eklenen > 0:
+                            st.success(f"✅ {eklenen} satır aktarıldı!")
+                        if hatalar:
+                            st.warning(f"⚠️ Şu satırlar okunamadı: {hatalar}")
+                        st.rerun()
+
                     if ekle and s_firma and s_miktar > 0:
                         mevcut_sevk.append({"tarih": s_tarih.strftime("%d.%m.%Y"), "firma": s_firma, "miktar": s_miktar, "fatura": s_fatura})
                         v["hareketler"][hedef_global_idx]["sevkiyat_detay"] = mevcut_sevk
                         v["hareketler"][hedef_global_idx]["fire_orani"] = str(fire)
                         v["hareketler"][hedef_global_idx]["uretim_notu"] = notlar
                         veriler_kaydet(v)
-                        st.success("✅ Sevkiyat eklendi!")
+                        st.success("✅ Eklendi!")
                         st.rerun()
                     if sadece_kaydet:
                         v["hareketler"][hedef_global_idx]["fire_orani"] = str(fire)
