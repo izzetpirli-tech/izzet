@@ -584,70 +584,183 @@ def uretim_sayfasi(v):
 # ─────────────────────────────────────────────
 def depom_sayfasi(v):
     st.markdown("## 📍 Depom (Anlık Durum)")
-    
+
     st.markdown(f"""
     <div class='kpi-card green'>
         <div class='kpi-label'>HAZIR MANTI STOĞU (TOPLAM)</div>
         <div class='kpi-value'>{v["hazir_manti_stok"]:.2f} KG</div>
     </div>
     """, unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### 🥟 Üretim Partileri")
-        manti_h = [h for h in v["hareketler"] if h.get("islem") == "Üretim"]
-        if manti_h:
-            df_m = pd.DataFrame([{
-                "Parti No": h.get("parti"),
-                "Miktar (KG)": h.get("miktar"),
-                "Üretim Tarihi": h.get("tarih"),
-                "Sevkiyat": "✅ Var" if h.get("sevkiyat_detay") else "⏳ Yok"
-            } for h in manti_h])
-            st.dataframe(df_m, use_container_width=True, hide_index=True)
-        else:
-            st.info("Üretim kaydı bulunmuyor.")
-    
-    with col2:
-        st.markdown("#### 📦 Kalan Hammadde Stoku (Parti Bazlı)")
-        kalan = [d for d in v["detayli_stok"] if d.get("kalan", 0) > TOLERANS]
-        if kalan:
-            df_k = pd.DataFrame([{
-                "Malzeme": d["malzeme"],
-                "Parti No": d["parti"],
-                "Giriş (KG)": round(d.get("miktar", 0), 2),
-                "Kalan (KG)": round(d.get("kalan", 0), 2),
-                "Tarih": d["tarih"]
-            } for d in sorted(kalan, key=lambda x: x.get("kalan", 0), reverse=True)])
-            
-            st.dataframe(df_k, use_container_width=True, hide_index=True)
-            
-            # Fire/Zayi işlemi
+
+    # ── ÜRETİM PARTİLERİ + İZLENEBİLİRLİK ──────────────────────────────
+    st.markdown("#### 🥟 Üretim Partileri — Birini seçerek detay & izlenebilirlik formunu aç")
+    manti_h = [h for h in v["hareketler"] if h.get("islem") == "Üretim"]
+
+    if not manti_h:
+        st.info("Üretim kaydı bulunmuyor.")
+    else:
+        parti_secenekler = [
+            f"{h.get('parti')} | {h.get('miktar')} KG | {h.get('tarih')} | {'✅ Sevk' if h.get('sevkiyat_detay') else '⏳ Bekliyor'}"
+            for h in manti_h
+        ]
+        secim = st.selectbox("📦 Parti Seç", ["— Seçiniz —"] + parti_secenekler)
+
+        if secim != "— Seçiniz —":
+            idx = parti_secenekler.index(secim)
+            hedef = manti_h[idx]
+            hedef_global_idx = next(
+                (i for i, h in enumerate(v["hareketler"])
+                 if h.get("parti") == hedef.get("parti") and h.get("islem") == "Üretim"), None
+            )
+
             st.markdown("---")
-            st.markdown("**🗑️ Fire / Zayi Bildir**")
-            parti_listesi = [f"{d['malzeme']} - {d['parti']}" for d in kalan]
-            secili_parti = st.selectbox("Parti Seç", parti_listesi)
-            
-            if st.button("🗑️ Seçili Partiyi Sıfırla", type="secondary"):
-                for d in v["detayli_stok"]:
-                    if f"{d['malzeme']} - {d['parti']}" == secili_parti:
-                        kalan_miktar = d["kalan"]
-                        v["stoklar"][d["malzeme"]] -= kalan_miktar
-                        if v["stoklar"][d["malzeme"]] < 0:
-                            v["stoklar"][d["malzeme"]] = 0
-                        v["hareketler"].insert(0, {
-                            "tarih": datetime.now().strftime("%d.%m.%Y"),
-                            "malzeme": f"{d['malzeme']} (FİRE/ZAYİ)",
-                            "miktar": -kalan_miktar, "fiyat": 0,
-                            "parti": d["parti"], "fatura": "-", "islem": "Zayi"
-                        })
-                        d["kalan"] = 0.0
-                        break
-                veriler_kaydet(v)
-                st.success("✅ Parti sıfırlandı!")
-                st.rerun()
-        else:
-            st.info("Aktif parti bulunamadı.")
+            st.markdown(f"### 🔍 {hedef['parti']} — İzlenebilirlik Formu")
+
+            col_sol, col_sag = st.columns(2)
+
+            with col_sol:
+                st.markdown("**🧪 Kullanılan Malzemeler**")
+                kullanilan = hedef.get("kullanilan_detay", [])
+                if not kullanilan:
+                    recete_adi = hedef.get("malzeme", "").replace("ÜRETİM (", "").replace(")", "")
+                    recete_data = v["coklu_receteler"].get(recete_adi) or                                   v["coklu_receteler"].get(v["aktif_recete_adi"], {"oranlar": {}})
+                    miktar = hedef.get("miktar", 0)
+                    kullanilan = [
+                        {"malzeme": m, "miktar": round(miktar * o, 3), "parti": "GEÇMİŞ", "fatura": "-"}
+                        for m, o in recete_data["oranlar"].items() if o > 0
+                    ]
+                    st.caption("⚠️ Geçmiş kayıt — teorik hesaplama gösteriliyor")
+
+                df_kul = pd.DataFrame([{
+                    "Malzeme": k["malzeme"],
+                    "Miktar (KG)": round(k["miktar"], 3),
+                    "Parti": k.get("parti", "-"),
+                    "Fatura": k.get("fatura", "-")
+                } for k in kullanilan])
+                st.dataframe(df_kul, use_container_width=True, hide_index=True)
+
+                st.markdown("**🏷️ Etiket Bilgileri**")
+                recete_adi2 = hedef.get("malzeme", "").replace("ÜRETİM (", "").replace(")", "")
+                recete_data2 = v["coklu_receteler"].get(recete_adi2) or                                v["coklu_receteler"].get(v["aktif_recete_adi"], {"etiket_tipi": "Soyalı"})
+                etiket_tipi = recete_data2.get("etiket_tipi", "Soyalı")
+                try:
+                    uretim_dt = datetime.strptime(hedef["tarih"], "%d.%m.%Y")
+                except:
+                    uretim_dt = datetime.now()
+                skt = (uretim_dt + timedelta(days=180)).strftime("%d.%m.%Y")
+                paket_secenekler = [0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
+                paket_kg = st.selectbox("Paket Ağırlığı (KG)", paket_secenekler, index=4, key=f"paket_{hedef['parti']}")
+                kopya = int(hedef.get("miktar", 0) / paket_kg) if paket_kg > 0 else 0
+                st.info(f"""
+**ÜRÜN:** MANTI ({etiket_tipi})
+**AĞIRLIK:** {int(paket_kg*1000) if paket_kg < 1 else int(paket_kg)} {"GR" if paket_kg < 1 else "KG"}
+**PARTİ NO:** {hedef["parti"]}
+**ÜRETİM TARİHİ:** {hedef["tarih"]}
+**SKT:** {skt}
+**KOPYA ADEDİ:** {kopya}
+                """)
+
+            with col_sag:
+                st.markdown("**🚚 Sevkiyat Takibi**")
+                fire = st.slider("Fire Oranı (%)", 0, 20, int(float(hedef.get("fire_orani", 4))), key=f"fire_{hedef['parti']}")
+                net = hedef["miktar"] * (1 - fire / 100)
+                st.metric("Net Dağıtılabilir", f"{net:.2f} KG")
+                notlar = st.text_input("Notlar", value=hedef.get("uretim_notu", ""), key=f"not_{hedef['parti']}")
+
+                st.markdown("**Yeni Sevkiyat Ekle:**")
+                with st.form(f"sevk_form_{hedef['parti']}"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        s_tarih = st.date_input("Tarih")
+                        s_firma = st.text_input("Firma Adı")
+                    with c2:
+                        s_miktar = st.number_input("Miktar (KG)", min_value=0.0, step=0.5)
+                        s_fatura = st.text_input("Fatura No")
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        ekle = st.form_submit_button("➕ Ekle & Kaydet", type="primary")
+                    with col_b2:
+                        sadece_kaydet = st.form_submit_button("💾 Sadece Kaydet")
+
+                    mevcut_sevk = list(hedef.get("sevkiyat_detay", []))
+                    if ekle and s_firma and s_miktar > 0:
+                        mevcut_sevk.append({"tarih": s_tarih.strftime("%d.%m.%Y"), "firma": s_firma, "miktar": s_miktar, "fatura": s_fatura})
+                        v["hareketler"][hedef_global_idx]["sevkiyat_detay"] = mevcut_sevk
+                        v["hareketler"][hedef_global_idx]["fire_orani"] = str(fire)
+                        v["hareketler"][hedef_global_idx]["uretim_notu"] = notlar
+                        veriler_kaydet(v)
+                        st.success("✅ Sevkiyat eklendi!")
+                        st.rerun()
+                    if sadece_kaydet:
+                        v["hareketler"][hedef_global_idx]["fire_orani"] = str(fire)
+                        v["hareketler"][hedef_global_idx]["uretim_notu"] = notlar
+                        v["hareketler"][hedef_global_idx]["sevkiyat_detay"] = mevcut_sevk
+                        veriler_kaydet(v)
+                        st.success("✅ Kaydedildi!")
+                        st.rerun()
+
+                mevcut_sevk = hedef.get("sevkiyat_detay", [])
+                if mevcut_sevk:
+                    st.markdown("**Mevcut Sevkiyatlar:**")
+                    df_sevk = pd.DataFrame(mevcut_sevk)
+                    st.dataframe(df_sevk, use_container_width=True, hide_index=True)
+                    toplam_sevk = sum(float(s["miktar"]) for s in mevcut_sevk)
+                    st.metric("Toplam Sevkiyat", f"{toplam_sevk:.2f} KG")
+                    if st.button("🖨️ Sevkiyat Raporu İndir", key=f"rapor_{hedef['parti']}"):
+                        html = f"""<html><head><meta charset='utf-8'><style>
+                        body{{font-family:Arial,sans-serif;font-size:13px;padding:30px}}
+                        h2{{color:#007AFF;border-bottom:2px solid #007AFF;padding-bottom:8px}}
+                        table{{width:100%;border-collapse:collapse;margin:15px 0}}
+                        th,td{{border:1px solid #ddd;padding:8px}}th{{background:#f5f5f7;font-weight:bold}}
+                        .box{{background:#f9f9f9;border:1px solid #ddd;padding:12px;border-radius:8px;margin:10px 0}}
+                        </style></head><body>
+                        <h2>ELFİGA MANTI — Sevkiyat Raporu</h2>
+                        <div class='box'><b>Ürün:</b> {hedef["malzeme"]}<br><b>Parti No:</b> {hedef["parti"]}<br>
+                        <b>Üretim Miktarı:</b> {hedef["miktar"]} KG<br><b>Fire Oranı:</b> %{fire}<br>
+                        <b>Net Dağıtılabilir:</b> {net:.2f} KG<br><b>Not:</b> {notlar}</div>
+                        <h3>Kullanılan Malzemeler</h3>
+                        <table><tr><th>Malzeme</th><th>KG</th><th>Parti</th><th>Fatura</th></tr>
+                        {"".join(f"<tr><td>{k['malzeme']}</td><td>{k['miktar']:.2f}</td><td>{k.get('parti','-')}</td><td>{k.get('fatura','-')}</td></tr>" for k in kullanilan)}
+                        </table><h3>Sevkiyat Detayları</h3>
+                        <table><tr><th>Tarih</th><th>Firma</th><th>Miktar (KG)</th><th>Fatura</th></tr>
+                        {"".join(f"<tr><td>{s['tarih']}</td><td>{s['firma']}</td><td>{s['miktar']}</td><td>{s['fatura']}</td></tr>" for s in mevcut_sevk)}
+                        <tr><td colspan='2'><b>TOPLAM</b></td><td><b>{toplam_sevk:.2f}</b></td><td></td></tr></table>
+                        <div style='display:flex;justify-content:space-between;margin-top:60px'>
+                        <div style='border-top:1px solid #000;padding-top:8px;width:200px;text-align:center'>Üretim Sorumlusu</div>
+                        <div style='border-top:1px solid #000;padding-top:8px;width:200px;text-align:center'>Onay</div>
+                        </div></body></html>"""
+                        st.download_button("⬇️ Raporu İndir (HTML)", data=html.encode("utf-8"),
+                                           file_name=f"sevkiyat_{hedef['parti']}.html",
+                                           mime="text/html", key=f"dl_{hedef['parti']}")
+
+    st.markdown("---")
+    st.markdown("#### 📦 Kalan Hammadde Stoku (Parti Bazlı)")
+    kalan = [d for d in v["detayli_stok"] if d.get("kalan", 0) > TOLERANS]
+    if kalan:
+        df_k = pd.DataFrame([{
+            "Malzeme": d["malzeme"], "Parti No": d["parti"],
+            "Giriş (KG)": round(d.get("miktar", 0), 2),
+            "Kalan (KG)": round(d.get("kalan", 0), 2), "Tarih": d["tarih"]
+        } for d in sorted(kalan, key=lambda x: x.get("kalan", 0), reverse=True)])
+        st.dataframe(df_k, use_container_width=True, hide_index=True)
+        st.markdown("**🗑️ Fire / Zayi Bildir**")
+        parti_listesi = [f"{d['malzeme']} - {d['parti']}" for d in kalan]
+        secili_parti = st.selectbox("Parti Seç", parti_listesi, key="zayi_secim")
+        if st.button("🗑️ Seçili Partiyi Sıfırla", type="secondary"):
+            for d in v["detayli_stok"]:
+                if f"{d['malzeme']} - {d['parti']}" == secili_parti:
+                    kalan_miktar = d["kalan"]
+                    v["stoklar"][d["malzeme"]] = max(0, v["stoklar"].get(d["malzeme"], 0) - kalan_miktar)
+                    v["hareketler"].insert(0, {"tarih": datetime.now().strftime("%d.%m.%Y"),
+                        "malzeme": f"{d['malzeme']} (FİRE/ZAYİ)", "miktar": -kalan_miktar,
+                        "fiyat": 0, "parti": d["parti"], "fatura": "-", "islem": "Zayi"})
+                    d["kalan"] = 0.0
+                    break
+            veriler_kaydet(v)
+            st.success("✅ Parti sıfırlandı!")
+            st.rerun()
+    else:
+        st.info("Aktif parti bulunamadı.")
 
 # ─────────────────────────────────────────────
 # SAYFA: DEPO & GİRİŞ
