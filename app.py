@@ -11,6 +11,8 @@ import psycopg2.extras
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 import hashlib
+import requests
+import secrets
 
 # ─────────────────────────────────────────────
 # SAYFA AYARLARI
@@ -26,6 +28,7 @@ st.set_page_config(
 # SABİTLER
 # ─────────────────────────────────────────────
 KRITIK_SEVIYE = 20.0
+SICAKLIK_API_URL = os.environ.get("SICAKLIK_API_URL", "")
 TOLERANS = 0.001
 VARSAYILAN_RECETE = {
     "Un": 0.6475, "Soğan": 0.100, "Kıyma": 0.046,
@@ -178,7 +181,7 @@ def db_set(key, value):
 # VERİ YÖNETİMİ
 # ─────────────────────────────────────────────
 def veriler_yukle():
-    """Tüm uygulama verilerini yükle - her zaman DB'den taze oku"""
+    """Tenant verisini yükle — tenant_id varsa tenant tablosundan, yoksa eski tablodan"""
     varsayilan = {
         "stoklar": {k: 0.0 for k in VARSAYILAN_RECETE},
         "detayli_stok": [],
@@ -194,18 +197,19 @@ def veriler_yukle():
         "aktif_recete_adi": "Standart Soyalı"
     }
     try:
-        # Cache'siz direkt DB sorgusu
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT value FROM veriler WHERE key = 'ana_veri'")
+        tenant_id = st.session_state.get("tenant_id")
+        if tenant_id:
+            cur.execute("SELECT value FROM tenant_veriler WHERE tenant_id = %s AND key = 'ana_veri'", (tenant_id,))
+        else:
+            cur.execute("SELECT value FROM veriler WHERE key = 'ana_veri'")
         row = cur.fetchone()
         cur.close()
-        
         if row:
-            kayitli = row['value']
+            kayitli = row["value"]
             if isinstance(kayitli, str):
                 kayitli = json.loads(kayitli)
-            # Eksik anahtarları varsayılanla doldur
             for k, v in varsayilan.items():
                 if k not in kayitli:
                     kayitli[k] = v
@@ -215,17 +219,24 @@ def veriler_yukle():
     return varsayilan
 
 def veriler_kaydet(veriler):
-    """Verileri DB'ye kaydet ve session'ı güncelle"""
+    """Tenant verisini kaydet"""
     try:
         conn = get_db()
         cur = conn.cursor()
         veri_json = json.dumps(veriler, ensure_ascii=False)
-        cur.execute("""
-            INSERT INTO veriler (key, value) VALUES ('ana_veri', %s::jsonb)
-            ON CONFLICT (key) DO UPDATE SET value = %s::jsonb, updated_at = NOW()
-        """, (veri_json, veri_json))
+        tenant_id = st.session_state.get("tenant_id")
+        if tenant_id:
+            cur.execute("""
+                INSERT INTO tenant_veriler (tenant_id, key, value)
+                VALUES (%s, 'ana_veri', %s::jsonb)
+                ON CONFLICT (tenant_id, key) DO UPDATE SET value = %s::jsonb, updated_at = NOW()
+            """, (tenant_id, veri_json, veri_json))
+        else:
+            cur.execute("""
+                INSERT INTO veriler (key, value) VALUES ('ana_veri', %s::jsonb)
+                ON CONFLICT (key) DO UPDATE SET value = %s::jsonb, updated_at = NOW()
+            """, (veri_json, veri_json))
         cur.close()
-        # Session'ı da güncelle
         st.session_state.veriler = veriler
         return True
     except Exception as e:
@@ -245,24 +256,57 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def kullanici_dogrula(username, password):
+    """Önce tenant tablosunda ara, yoksa eski tabloda"""
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM kullanicilar WHERE username = %s", (username,))
+        
+        # Tenant sistemi: tüm tenantlarda bu kullanıcıyı ara
+        cur.execute("""
+            SELECT tk.*, t.id as tenant_id, t.firma_adi, t.slug, t.durum, t.bitis_tarihi
+            FROM tenant_kullanicilar tk
+            JOIN tenants t ON tk.tenant_id = t.id
+            WHERE tk.username = %s AND tk.password_hash = %s
+        """, (username, hash_password(password)))
         user = cur.fetchone()
+        
+        if user:
+            # Abonelik kontrolü
+            bugun = datetime.now().date()
+            if user["durum"] == "pasif":
+                cur.close()
+                return None, "Hesabınız pasif edilmiştir. Lütfen yöneticinize başvurun."
+            if user["bitis_tarihi"] and user["bitis_tarihi"] < bugun:
+                cur.close()
+                return None, "Abonelik süreniz dolmuştur. Lütfen yenileyin."
+            cur.close()
+            return dict(user), None
+        
+        # Eski sistem (geriye dönük uyumluluk)
+        cur.execute("SELECT * FROM kullanicilar WHERE username = %s", (username,))
+        old_user = cur.fetchone()
         cur.close()
-        if user and user['password_hash'] == hash_password(password):
-            return user
-        return None
-    except:
-        return None
+        if old_user and old_user["password_hash"] == hash_password(password):
+            return dict(old_user), None
+        
+        return None, "Kullanıcı adı veya parola hatalı."
+    except Exception as e:
+        return None, f"Bağlantı hatası: {e}"
 
 def admin_kullanici_olustur():
-    """İlk çalıştırmada admin oluştur"""
+    """İlk çalıştırmada eski sistem için admin oluştur (geriye dönük)"""
     try:
         conn = get_db()
         cur = conn.cursor()
-        # Admin yoksa oluştur
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS kullanicilar (
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
         cur.execute("SELECT COUNT(*) FROM kullanicilar WHERE username = 'admin'")
         count = cur.fetchone()[0]
         if count == 0:
@@ -293,14 +337,17 @@ def login_sayfasi():
             submit = st.form_submit_button("Giriş Yap", use_container_width=True, type="primary")
             
             if submit:
-                user = kullanici_dogrula(username, password)
+                user, hata = kullanici_dogrula(username, password)
                 if user:
                     st.session_state.logged_in = True
                     st.session_state.username = username
-                    st.session_state.role = user['role']
+                    st.session_state.role = user.get('rol', user.get('role', 'user'))
+                    if 'tenant_id' in user:
+                        st.session_state.tenant_id = user['tenant_id']
+                        st.session_state.firma_adi = user.get('firma_adi', 'ELFİGA MANTI')
                     st.rerun()
                 else:
-                    st.error("❌ Kullanıcı adı veya parola hatalı!")
+                    st.error(f"❌ {hata}")
 
 # ─────────────────────────────────────────────
 # SIDEBAR
@@ -319,12 +366,14 @@ def sidebar_menu():
         
         menu = st.radio(
             "📍 Menü",
-            ["📊 Patron Ekranı", "🏭 Üretim", "📍 Depom", "📦 Depo & Giriş", "⚙️ Ayarlar"],
+            ["📊 Patron Ekranı", "🏭 Üretim", "📍 Depom", "📦 Depo & Giriş", "🌡️ Sıcaklık", "⚙️ Ayarlar"],
             label_visibility="collapsed"
         )
         
         st.markdown("---")
         st.markdown(f"👤 **{st.session_state.get('username', '')}**")
+        firma = st.session_state.get('firma_adi', 'ELFİGA MANTI')
+        st.markdown(f"🏢 *{firma}*")
         if st.button("🚪 Çıkış", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.username = ""
@@ -1266,6 +1315,128 @@ def ayarlar_sayfasi(v):
                     st.error(f"❌ Hata: {e}")
 
 # ─────────────────────────────────────────────
+# SICAKLIK YARDIMCI FONKSİYONLAR
+# ─────────────────────────────────────────────
+def sicaklik_db_init():
+    """Sıcaklık tablolarını oluştur (app.py'nin init_db() fonksiyonuna ekle)"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sicaklik_sensorler (
+            id SERIAL PRIMARY KEY,
+            tenant_id INTEGER,
+            sensor_id TEXT NOT NULL,
+            sensor_adi TEXT DEFAULT '',
+            konum TEXT DEFAULT '',
+            min_alarm NUMERIC DEFAULT -25.0,
+            max_alarm NUMERIC DEFAULT 5.0,
+            aktif BOOLEAN DEFAULT TRUE,
+            api_key TEXT,
+            olusturma_tarihi TIMESTAMP DEFAULT NOW(),
+            UNIQUE(tenant_id, sensor_id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sicaklik_olcumler (
+            id SERIAL PRIMARY KEY,
+            tenant_id INTEGER,
+            sensor_id TEXT NOT NULL,
+            sicaklik NUMERIC NOT NULL,
+            nem NUMERIC,
+            kayit_zamani TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sicaklik_alarmlar (
+            id SERIAL PRIMARY KEY,
+            tenant_id INTEGER,
+            sensor_id TEXT,
+            sicaklik NUMERIC,
+            alarm_tipi TEXT,
+            mesaj TEXT,
+            goruldu BOOLEAN DEFAULT FALSE,
+            kayit_zamani TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cur.close()
+
+def sensorleri_getir(tenant_id):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM sicaklik_sensorler WHERE tenant_id = %s ORDER BY sensor_id", (tenant_id,))
+    rows = cur.fetchall()
+    cur.close()
+    return [dict(r) for r in rows]
+
+def sensor_ekle(tenant_id, sensor_id, sensor_adi, konum, min_al, max_al):
+    import secrets
+    api_key = "SK-" + secrets.token_hex(16)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO sicaklik_sensorler (tenant_id, sensor_id, sensor_adi, konum, min_alarm, max_alarm, api_key)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (tenant_id, sensor_id) DO UPDATE 
+        SET sensor_adi=%s, konum=%s, min_alarm=%s, max_alarm=%s
+    """, (tenant_id, sensor_id, sensor_adi, konum, min_al, max_al, api_key,
+          sensor_adi, konum, min_al, max_al))
+    cur.close()
+    return api_key
+
+def son_olcumleri_getir(tenant_id, sensor_idler):
+    """Her sensörün son ölçümünü getir"""
+    if not sensor_idler:
+        return {}
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    sonuclar = {}
+    for sid in sensor_idler:
+        cur.execute("""
+            SELECT sicaklik, nem, kayit_zamani 
+            FROM sicaklik_olcumler 
+            WHERE tenant_id = %s AND sensor_id = %s 
+            ORDER BY kayit_zamani DESC LIMIT 1
+        """, (tenant_id, sid))
+        row = cur.fetchone()
+        if row:
+            sonuclar[sid] = dict(row)
+    cur.close()
+    return sonuclar
+
+def gecmis_olcumleri_getir(tenant_id, sensor_id, limit=200):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT sicaklik, nem, kayit_zamani 
+        FROM sicaklik_olcumler 
+        WHERE tenant_id = %s AND sensor_id = %s 
+        ORDER BY kayit_zamani DESC LIMIT %s
+    """, (tenant_id, sensor_id, limit))
+    rows = cur.fetchall()
+    cur.close()
+    return [dict(r) for r in reversed(rows)]  # Eski→yeni sırala
+
+def aktif_alarmlari_getir(tenant_id):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT * FROM sicaklik_alarmlar 
+        WHERE tenant_id = %s AND goruldu = FALSE 
+        ORDER BY kayit_zamani DESC LIMIT 20
+    """, (tenant_id,))
+    rows = cur.fetchall()
+    cur.close()
+    return [dict(r) for r in rows]
+
+def alarmi_goruldu_isaretle(tenant_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE sicaklik_alarmlar SET goruldu = TRUE WHERE tenant_id = %s", (tenant_id,))
+    cur.close()
+
+
+
+# ─────────────────────────────────────────────
 # ANA UYGULAMA
 # ─────────────────────────────────────────────
 def main():
@@ -1298,8 +1469,343 @@ def main():
         depom_sayfasi(v)
     elif menu == "📦 Depo & Giriş":
         depo_giris_sayfasi(v)
+    elif menu == "🌡️ Sıcaklık":
+        sicaklik_sayfasi(v)
     elif menu == "⚙️ Ayarlar":
         ayarlar_sayfasi(v)
 
 if __name__ == "__main__":
     main()
+
+
+# ─────────────────────────────────────────────
+# SICAKLIK TAKİP SAYFASI
+# ─────────────────────────────────────────────
+def sicaklik_sayfasi(v):
+    st.markdown("## 🌡️ Sıcaklık Takip Sistemi")
+
+    tenant_id = st.session_state.get("tenant_id", 0)
+
+    # DB tablolarını hazırla
+    try:
+        sicaklik_db_init()
+    except:
+        pass
+
+    # Aktif alarmlar
+    try:
+        alarmlar = aktif_alarmlari_getir(tenant_id)
+        if alarmlar:
+            for alarm in alarmlar[:3]:
+                st.error(f"🚨 **ALARM** | {alarm['sensor_id']} | {alarm['mesaj']} | {str(alarm['kayit_zamani'])[:16]}")
+            col_alarm = st.columns([3, 1])
+            with col_alarm[1]:
+                if st.button("✅ Tümünü Okundu İşaretle"):
+                    alarmi_goruldu_isaretle(tenant_id)
+                    st.rerun()
+    except:
+        pass
+
+    tab1, tab2, tab3 = st.tabs(["📊 Canlı İzleme", "📈 Geçmiş & Grafik", "⚙️ Sensör Ayarları"])
+
+    # ── CANLI İZLEME ────────────────────────────────────────────────────
+    with tab1:
+        st.markdown("#### 🔴 Canlı Sensör Durumu")
+        st.caption("Sayfa her 30 saniyede otomatik güncellenir")
+
+        try:
+            sensorler = sensorleri_getir(tenant_id)
+        except:
+            sensorler = []
+
+        if not sensorler:
+            st.info("Henüz sensör tanımlanmamış. '⚙️ Sensör Ayarları' sekmesinden ekleyin.")
+        else:
+            son_olcumler = son_olcumleri_getir(tenant_id, [s["sensor_id"] for s in sensorler])
+
+            # Sensör kartları
+            cols = st.columns(min(len(sensorler), 3))
+            for i, sensor in enumerate(sensorler):
+                with cols[i % 3]:
+                    olcum = son_olcumler.get(sensor["sensor_id"])
+                    if olcum:
+                        sicaklik = float(olcum["sicaklik"])
+                        nem = float(olcum["nem"]) if olcum.get("nem") else None
+                        zaman = str(olcum["kayit_zamani"])[:16]
+
+                        # Renk belirle
+                        min_al = float(sensor["min_alarm"])
+                        max_al = float(sensor["max_alarm"])
+
+                        if sicaklik < min_al:
+                            renk = "#FF3B30"
+                            durum = "⬇️ DÜŞÜK ALARM"
+                        elif sicaklik > max_al:
+                            renk = "#FF9500"
+                            durum = "⬆️ YÜKSEK ALARM"
+                        else:
+                            renk = "#34C759"
+                            durum = "✅ Normal"
+
+                        st.markdown(f"""
+<div style="background:#1a1a2e;border:2px solid {renk};border-radius:14px;padding:20px;margin-bottom:12px;text-align:center">
+  <div style="color:#8E8E93;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px">{sensor['sensor_adi'] or sensor['sensor_id']}</div>
+  <div style="color:#8E8E93;font-size:10px;margin:2px 0 8px 0">📍 {sensor['konum'] or '-'}</div>
+  <div style="color:{renk};font-size:48px;font-weight:800;line-height:1">{sicaklik:.1f}°C</div>
+  {'<div style="color:#007AFF;font-size:16px;margin-top:6px">💧 ' + f'{nem:.1f}%' + '</div>' if nem else ''}
+  <div style="color:{renk};font-size:12px;font-weight:600;margin-top:8px">{durum}</div>
+  <div style="color:#555;font-size:10px;margin-top:4px">🕐 {zaman}</div>
+  <div style="color:#444;font-size:10px;margin-top:2px">Sınır: {min_al}°C / {max_al}°C</div>
+</div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+<div style="background:#1a1a2e;border:2px solid #3a3a4e;border-radius:14px;padding:20px;margin-bottom:12px;text-align:center">
+  <div style="color:#8E8E93;font-size:11px;font-weight:600">{sensor['sensor_adi'] or sensor['sensor_id']}</div>
+  <div style="color:#555;font-size:32px;margin:12px 0">📡</div>
+  <div style="color:#555;font-size:13px">Veri bekleniyor...</div>
+  <div style="color:#444;font-size:10px;margin-top:4px">Sensör henüz bağlanmadı</div>
+</div>
+                        """, unsafe_allow_html=True)
+
+        # Otomatik yenileme
+        st.markdown("---")
+        col_r1, col_r2 = st.columns([3, 1])
+        with col_r2:
+            if st.button("🔄 Şimdi Yenile", use_container_width=True):
+                st.rerun()
+        with col_r1:
+            st.caption(f"Son güncelleme: {datetime.now().strftime('%H:%M:%S')}")
+
+    # ── GEÇMİŞ & GRAFİK ─────────────────────────────────────────────────
+    with tab2:
+        st.markdown("#### 📈 Sıcaklık Geçmişi")
+
+        try:
+            sensorler = sensorleri_getir(tenant_id)
+        except:
+            sensorler = []
+
+        if not sensorler:
+            st.info("Sensör tanımlanmamış.")
+        else:
+            sensor_secenekler = {f"{s['sensor_adi'] or s['sensor_id']} ({s['konum'] or '-'})": s["sensor_id"] for s in sensorler}
+            secim = st.selectbox("Sensör Seç", list(sensor_secenekler.keys()))
+            secilen_sensor_id = sensor_secenekler[secim]
+
+            col_limit, col_grafik_tip = st.columns(2)
+            with col_limit:
+                limit = st.selectbox("Kaç ölçüm?", [50, 100, 200, 500], index=1)
+            with col_grafik_tip:
+                grafik_tip = st.selectbox("Grafik Tipi", ["Çizgi", "Alan"])
+
+            olcumler = gecmis_olcumleri_getir(tenant_id, secilen_sensor_id, limit)
+
+            if olcumler:
+                df = pd.DataFrame(olcumler)
+                df["kayit_zamani"] = pd.to_datetime(df["kayit_zamani"])
+                df["sicaklik"] = df["sicaklik"].astype(float)
+
+                # İstatistikler
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.metric("🌡️ Son Ölçüm", f"{df['sicaklik'].iloc[-1]:.1f}°C")
+                with c2:
+                    st.metric("📉 Min", f"{df['sicaklik'].min():.1f}°C")
+                with c3:
+                    st.metric("📈 Max", f"{df['sicaklik'].max():.1f}°C")
+                with c4:
+                    st.metric("📊 Ortalama", f"{df['sicaklik'].mean():.1f}°C")
+
+                # Grafik
+                sensor_bilgi = next((s for s in sensorler if s["sensor_id"] == secilen_sensor_id), {})
+                min_al = float(sensor_bilgi.get("min_alarm", -25))
+                max_al = float(sensor_bilgi.get("max_alarm", 5))
+
+                if grafik_tip == "Alan":
+                    fig = px.area(df, x="kayit_zamani", y="sicaklik",
+                                 title=f"Sıcaklık Geçmişi — {secim}",
+                                 color_discrete_sequence=["#007AFF"])
+                else:
+                    fig = px.line(df, x="kayit_zamani", y="sicaklik",
+                                 title=f"Sıcaklık Geçmişi — {secim}",
+                                 color_discrete_sequence=["#007AFF"])
+
+                # Alarm çizgileri
+                fig.add_hline(y=min_al, line_dash="dash", line_color="#FF3B30",
+                             annotation_text=f"Min Alarm ({min_al}°C)")
+                fig.add_hline(y=max_al, line_dash="dash", line_color="#FF9500",
+                             annotation_text=f"Max Alarm ({max_al}°C)")
+
+                fig.update_layout(
+                    paper_bgcolor="#0F0F13",
+                    plot_bgcolor="#1a1a2e",
+                    font_color="white",
+                    xaxis_title="Zaman",
+                    yaxis_title="Sıcaklık (°C)",
+                    height=400
+                )
+                fig.update_xaxes(gridcolor="#2a2a3e")
+                fig.update_yaxes(gridcolor="#2a2a3e")
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Nem grafiği
+                if "nem" in df.columns and df["nem"].notna().any():
+                    fig2 = px.line(df, x="kayit_zamani", y="nem",
+                                  title="Nem Geçmişi (%)",
+                                  color_discrete_sequence=["#34C759"])
+                    fig2.update_layout(
+                        paper_bgcolor="#0F0F13", plot_bgcolor="#1a1a2e",
+                        font_color="white", height=250
+                    )
+                    st.plotly_chart(fig2, use_container_width=True)
+
+                # Excel indir
+                if st.button("📊 Excel'e Aktar"):
+                    output = io.BytesIO()
+                    wb = Workbook()
+                    ws = wb.active
+                    ws.title = "Sıcaklık Verileri"
+                    ws.append(["Zaman", "Sıcaklık (°C)", "Nem (%)"])
+                    for _, row in df.iterrows():
+                        ws.append([str(row["kayit_zamani"]), float(row["sicaklik"]),
+                                  float(row["nem"]) if pd.notna(row.get("nem")) else ""])
+                    wb.save(output)
+                    output.seek(0)
+                    st.download_button("⬇️ İndir",
+                                      data=output.getvalue(),
+                                      file_name=f"sicaklik_{secilen_sensor_id}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                      mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            else:
+                st.info("Bu sensörden henüz ölçüm gelmedi.")
+
+    # ── SENSÖR AYARLARI ──────────────────────────────────────────────────
+    with tab3:
+        st.markdown("#### ⚙️ Sensör Tanımla / Düzenle")
+
+        with st.form("sensor_ekle_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                sensor_id = st.text_input("Sensör ID *", placeholder="don_odasi_1",
+                                         help="Küçük harf, alt çizgi. Örn: don_odasi_1")
+                sensor_adi = st.text_input("Sensör Adı", placeholder="Dondurma Odası 1")
+                konum = st.text_input("Konum", placeholder="B Blok, 2. Kat")
+            with col2:
+                min_alarm = st.number_input("Min Alarm (°C)", value=-25.0, step=0.5,
+                                           help="Bu sıcaklığın altına inince alarm ver")
+                max_alarm = st.number_input("Max Alarm (°C)", value=5.0, step=0.5,
+                                           help="Bu sıcaklığın üstüne çıkınca alarm ver")
+
+            kaydet = st.form_submit_button("💾 Sensörü Kaydet", type="primary")
+
+            if kaydet:
+                if not sensor_id:
+                    st.error("Sensör ID zorunlu!")
+                else:
+                    try:
+                        api_key = sensor_ekle(tenant_id, sensor_id, sensor_adi, konum, min_alarm, max_alarm)
+                        st.success(f"✅ Sensör kaydedildi!")
+                        st.code(f"""
+// ESP32 Arduino Kodu (sicaklik_api.py'ye gönderir)
+// Bu bilgileri Arduino koduna ekle:
+
+const char* API_URL = "{SICAKLIK_API_URL}/api/sicaklik";
+const char* API_KEY = "{api_key}";
+
+// HTTP POST örneği:
+// POST {SICAKLIK_API_URL}/api/sicaklik
+// Header: X-API-Key: {api_key}
+// Body: {{"sensor_id": "{sensor_id}", "sicaklik": 23.5, "nem": 65.0}}
+                        """, language="cpp")
+                    except Exception as e:
+                        st.error(f"Hata: {e}")
+
+        st.markdown("---")
+        st.markdown("#### 📋 Kayıtlı Sensörler")
+
+        try:
+            sensorler = sensorleri_getir(tenant_id)
+            if sensorler:
+                df_s = pd.DataFrame([{
+                    "Sensör ID": s["sensor_id"],
+                    "Adı": s["sensor_adi"],
+                    "Konum": s["konum"],
+                    "Min Alarm (°C)": s["min_alarm"],
+                    "Max Alarm (°C)": s["max_alarm"],
+                    "Aktif": "✅" if s["aktif"] else "❌",
+                    "API Key": s["api_key"]
+                } for s in sensorler])
+                st.dataframe(df_s, use_container_width=True, hide_index=True)
+            else:
+                st.info("Henüz sensör eklenmemiş.")
+        except Exception as e:
+            st.info("Sensör tablosu hazırlanıyor...")
+
+        # ESP32 örnek kod
+        st.markdown("---")
+        st.markdown("#### 📟 ESP32 Örnek Arduino Kodu")
+        st.code("""
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <DHT.h>
+
+// WiFi Ayarları
+const char* WIFI_SSID     = "WIFI_ADINIZ";
+const char* WIFI_PASSWORD = "WIFI_SIFRENIZ";
+
+// API Ayarları (Sensör ekledikten sonra buraya kopyala)
+const char* API_URL = "https://SIZIN-API-URL.railway.app/api/sicaklik";
+const char* API_KEY = "SK-xxxxxxxxxxxxxxxxxxxx";
+
+// DHT Sensör
+#define DHT_PIN 4
+#define DHT_TYPE DHT22
+DHT dht(DHT_PIN, DHT_TYPE);
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("WiFi bağlanıyor");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" Bağlandı!");
+}
+
+void loop() {
+  float sicaklik = dht.readTemperature();
+  float nem      = dht.readHumidity();
+  
+  if (isnan(sicaklik) || isnan(nem)) {
+    Serial.println("Sensör okuma hatası!");
+    delay(5000);
+    return;
+  }
+  
+  Serial.printf("Sıcaklık: %.1f°C  Nem: %.1f%%\\n", sicaklik, nem);
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(API_URL);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-API-Key", API_KEY);
+    
+    String body = "{\\"sicaklik\\":" + String(sicaklik, 1) + 
+                  ",\\"nem\\":" + String(nem, 1) + "}";
+    
+    int httpCode = http.POST(body);
+    
+    if (httpCode == 200) {
+      Serial.println("Veri gönderildi ✓");
+    } else {
+      Serial.printf("HTTP Hata: %d\\n", httpCode);
+    }
+    http.end();
+  }
+  
+  delay(30000); // 30 saniyede bir gönder
+}
+        """, language="cpp")
