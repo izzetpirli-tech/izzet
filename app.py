@@ -1437,48 +1437,6 @@ def alarmi_goruldu_isaretle(tenant_id):
 
 
 # ─────────────────────────────────────────────
-# ANA UYGULAMA
-# ─────────────────────────────────────────────
-def main():
-    # DB başlat
-    init_db()
-    admin_kullanici_olustur()
-    
-    # Session state başlat
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-    
-    # Login kontrol
-    if not st.session_state.logged_in:
-        login_sayfasi()
-        return
-    
-    # Verileri her zaman DB'den taze yükle
-    v = veriler_yukle()
-    st.session_state.veriler = v
-    
-    # Menü
-    menu = sidebar_menu()
-    
-    # Sayfa yönlendirme
-    if menu == "📊 Patron Ekranı":
-        patron_ekrani(v)
-    elif menu == "🏭 Üretim":
-        uretim_sayfasi(v)
-    elif menu == "📍 Depom":
-        depom_sayfasi(v)
-    elif menu == "📦 Depo & Giriş":
-        depo_giris_sayfasi(v)
-    elif menu == "🌡️ Sıcaklık":
-        sicaklik_sayfasi(v)
-    elif menu == "⚙️ Ayarlar":
-        ayarlar_sayfasi(v)
-
-if __name__ == "__main__":
-    main()
-
-
-# ─────────────────────────────────────────────
 # SICAKLIK TAKİP SAYFASI
 # ─────────────────────────────────────────────
 def sicaklik_sayfasi(v):
@@ -1809,3 +1767,46 @@ void loop() {
   delay(30000); // 30 saniyede bir gönder
 }
         """, language="cpp")
+
+
+# ─────────────────────────────────────────────
+# ANA UYGULAMA
+# ─────────────────────────────────────────────
+def main():
+    # DB başlat
+    init_db()
+    admin_kullanici_olustur()
+    
+    # Session state başlat
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    
+    # Login kontrol
+    if not st.session_state.logged_in:
+        login_sayfasi()
+        return
+    
+    # Verileri her zaman DB'den taze yükle
+    v = veriler_yukle()
+    st.session_state.veriler = v
+    
+    # Menü
+    menu = sidebar_menu()
+    
+    # Sayfa yönlendirme
+    if menu == "📊 Patron Ekranı":
+        patron_ekrani(v)
+    elif menu == "🏭 Üretim":
+        uretim_sayfasi(v)
+    elif menu == "📍 Depom":
+        depom_sayfasi(v)
+    elif menu == "📦 Depo & Giriş":
+        depo_giris_sayfasi(v)
+    elif menu == "🌡️ Sıcaklık":
+        sicaklik_sayfasi(v)
+    elif menu == "⚙️ Ayarlar":
+        ayarlar_sayfasi(v)
+
+if __name__ == "__main__":
+    main()
+
