@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Hareketler — Elfiga ERP{% endblock %}
+{% block page_title %}Hareket Kayıtları{% endblock %}
+{% block page_sub %}Tüm stok hareketleri{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn-ghost" onclick="excelIndir()">📊 Excel</button>
+{% endblock %}
+
+{% block content %}
+<div class="card-erp">
+    <!-- Filtreler -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <label class="form-label-erp">İşlem Tipi</label>
+            <select id="f_islem" class="form-control-erp" onchange="filtrele()">
+                <option value="">Tümü</option>
+                <option value="Giriş">Giriş</option>
+                <option value="Üretim">Üretim</option>
+                <option value="Satış">Satış</option>
+                <option value="Zayi">Zayi</option>
+            </select>
+        </div>
+        <div class="col-6 col-lg-3">
+            <label class="form-label-erp">Malzeme Ara</label>
+            <input type="text" id="f_mlz" class="form-control-erp" placeholder="Malzeme..." oninput="filtrele()">
+        </div>
+        <div class="col-6 col-lg-3">
+            <label class="form-label-erp">Parti No</label>
+            <input type="text" id="f_parti" class="form-control-erp" placeholder="Parti..." oninput="filtrele()">
+        </div>
+        <div class="col-6 col-lg-3">
+            <label class="form-label-erp">Arama</label>
+            <input type="text" id="f_genel" class="form-control-erp" placeholder="Genel ara..." oninput="filtrele()">
+        </div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <span style="font-size:13px; color:var(--text-muted);" id="kayit_sayisi"></span>
+    </div>
+
+    <div id="tablo_div" style="overflow-x:auto;">
+        <div style="text-align:center; padding:40px; color:var(--text-muted);">Yükleniyor...</div>
+    </div>
+</div>
+
+<!-- Düzenle Modal -->
+<div id="modal" style="display:none; position:fixed; inset:0; background:#00000080; z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:460px; margin:16px;">
+        <h3 style="font-size:16px; font-weight:700; margin-bottom:8px;">✏️ Kaydı Düzenle</h3>
+        <p id="edit_bilgi" style="font-size:13px; color:var(--text-muted); margin-bottom:20px;"></p>
+        <input type="hidden" id="edit_idx">
+        <div class="row g-3 mb-3">
+            <div class="col-6">
+                <label class="form-label-erp">Miktar (KG)</label>
+                <input type="number" id="edit_miktar" class="form-control-erp" step="0.1">
+            </div>
+            <div class="col-6">
+                <label class="form-label-erp">Fiyat (TL/KG)</label>
+                <input type="number" id="edit_fiyat" class="form-control-erp" step="0.1">
+            </div>
+        </div>
+        <div class="row g-3 mb-4">
+            <div class="col-6">
+                <label class="form-label-erp">Parti No</label>
+                <input type="text" id="edit_parti" class="form-control-erp">
+            </div>
+            <div class="col-6">
+                <label class="form-label-erp">Fatura No</label>
+                <input type="text" id="edit_fatura" class="form-control-erp">
+            </div>
+        </div>
+        <div style="display:flex; gap:12px;">
+            <button class="btn-primary-erp" style="flex:1;" onclick="duzenleKaydet()">💾 Güncelle</button>
+            <button class="btn-ghost" onclick="modalKapat()">İptal</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tumHareketler = [];
+let filtreliHareketler = [];
+
+async function yukle() {
+    const r = await api('GET', '/api/hareketler');
+    tumHareketler = Array.isArray(r) ? r : [];
+    filtrele();
+}
+
+function filtrele() {
+    const islem = document.getElementById('f_islem').value;
+    const mlz = document.getElementById('f_mlz').value.toLowerCase();
+    const parti = document.getElementById('f_parti').value.toLowerCase();
+    const genel = document.getElementById('f_genel').value.toLowerCase();
+
+    filtreliHareketler = tumHareketler.filter(h => {
+        if (islem && h.islem !== islem) return false;
+        if (mlz && !(h.malzeme||'').toLowerCase().includes(mlz)) return false;
+        if (parti && !(h.parti||'').toLowerCase().includes(parti)) return false;
+        if (genel) {
+            const str = JSON.stringify(h).toLowerCase();
+            if (!str.includes(genel)) return false;
+        }
+        return true;
+    });
+
+    document.getElementById('kayit_sayisi').textContent = `${filtreliHareketler.length} kayıt`;
+    tabloyu_ciz();
+}
+
+function badgeIslem(islem) {
+    const map = {
+        'Giriş': 'badge-giris',
+        'Üretim': 'badge-uretim',
+        'Satış': 'badge-satis',
+        'Zayi': 'badge-zayi',
+        'Karışım': 'badge-zayi',
+    };
+    return `<span class="${map[islem] || 'badge-zayi'}">${islem||'—'}</span>`;
+}
+
+function tabloyu_ciz() {
+    const el = document.getElementById('tablo_div');
+    if (!filtreliHareketler.length) {
+        el.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);">Kayıt bulunamadı</div>';
+        return;
+    }
+    el.innerHTML = `
+        <table class="tablo">
+            <thead><tr>
+                <th>Tarih</th>
+                <th>Malzeme / Ürün</th>
+                <th>Miktar</th>
+                <th>Fiyat</th>
+                <th>Parti No</th>
+                <th>Fatura</th>
+                <th>İşlem</th>
+                <th></th>
+            </tr></thead>
+            <tbody>
+                ${filtreliHareketler.map(h => {
+                    const gi = tumHareketler.indexOf(h);
+                    const duzBtn = h.islem === 'Giriş' ? `<button class="btn-ghost" style="padding:4px 10px; font-size:12px;" onclick="modalAc(${gi})">✏️</button>` : '';
+                    const silBtn = h.islem === 'Giriş' ? `<button class="btn-danger-erp" style="padding:4px 10px; font-size:12px;" onclick="sil(${gi})">🗑️</button>` : '';
+                    return `<tr>
+                        <td style="color:var(--text-muted); font-size:13px; white-space:nowrap;">${h.tarih||'—'}</td>
+                        <td style="font-weight:500;">${h.malzeme||'—'}</td>
+                        <td>${Math.abs(h.miktar||0).toFixed(1)} KG</td>
+                        <td style="color:var(--text-muted);">${h.fiyat ? h.fiyat.toFixed(2)+' ₺' : '—'}</td>
+                        <td style="font-size:12px; color:var(--text-muted);">${h.parti||'—'}</td>
+                        <td style="font-size:12px; color:var(--text-muted);">${h.fatura||'—'}</td>
+                        <td>${badgeIslem(h.islem)}</td>
+                        <td style="display:flex; gap:4px;">${duzBtn}${silBtn}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function modalAc(idx) {
+    const h = tumHareketler[idx];
+    document.getElementById('edit_idx').value = idx;
+    document.getElementById('edit_bilgi').textContent = `${h.malzeme} — ${h.tarih}`;
+    document.getElementById('edit_miktar').value = h.miktar || 0;
+    document.getElementById('edit_fiyat').value = h.fiyat || 0;
+    document.getElementById('edit_parti').value = h.parti || '';
+    document.getElementById('edit_fatura').value = h.fatura || '';
+    document.getElementById('modal').style.display = 'flex';
+}
+
+function modalKapat() {
+    document.getElementById('modal').style.display = 'none';
+}
+
+async function duzenleKaydet() {
+    const idx = parseInt(document.getElementById('edit_idx').value);
+    const res = await api('PUT', `/api/stok/hareket/${idx}`, {
+        miktar: parseFloat(document.getElementById('edit_miktar').value),
+        fiyat: parseFloat(document.getElementById('edit_fiyat').value),
+        parti: document.getElementById('edit_parti').value,
+        fatura: document.getElementById('edit_fatura').value,
+    });
+    if (res.ok) { showToast('Güncellendi!'); modalKapat(); yukle(); }
+    else showToast('Hata!', 'error');
+}
+
+async function sil(idx) {
+    if (!confirm('Bu kaydı silmek istiyor musunuz? Stok geri alınacak.')) return;
+    const res = await api('DELETE', `/api/stok/hareket/${idx}`);
+    if (res.ok) { showToast('Silindi!'); yukle(); }
+    else showToast('Hata!', 'error');
+}
+
+function excelIndir() {
+    showToast('Excel yakında eklenecek!', 'error');
+}
+
+yukle();
+</script>
+{% endblock %}

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Ayarlar — Elfiga ERP{% endblock %}
+{% block page_title %}Ayarlar{% endblock %}
+{% block page_sub %}Sistem ve hesap ayarları{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Şifre Değiştir -->
+    <div class="col-lg-5">
+        <div class="card-erp mb-4">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">🔐 Şifre Değiştir</h3>
+            <div style="margin-bottom:16px;">
+                <label class="form-label-erp">Mevcut Şifre</label>
+                <input type="password" id="eski_sifre" class="form-control-erp" placeholder="••••••">
+            </div>
+            <div style="margin-bottom:16px;">
+                <label class="form-label-erp">Yeni Şifre</label>
+                <input type="password" id="yeni_sifre" class="form-control-erp" placeholder="••••••">
+            </div>
+            <div style="margin-bottom:20px;">
+                <label class="form-label-erp">Yeni Şifre Tekrar</label>
+                <input type="password" id="yeni_sifre2" class="form-control-erp" placeholder="••••••">
+            </div>
+            <button class="btn-primary-erp" style="width:100%;" onclick="sifreDegistir()">💾 Kaydet</button>
+        </div>
+
+        <!-- Yedek -->
+        <div class="card-erp">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">💾 Veri Yedekleme</h3>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">Tüm verilerinizi JSON olarak indirin.</p>
+            <button class="btn-primary-erp" style="width:100%; margin-bottom:12px;" onclick="yedekIndir()">⬇️ Yedek İndir</button>
+            <hr style="border-color:var(--border); margin:16px 0;">
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">JSON yedekten geri yükle:</p>
+            <input type="file" id="yedek_dosya" accept=".json" style="display:none;" onchange="yedekYukle()">
+            <button class="btn-ghost" style="width:100%;" onclick="document.getElementById('yedek_dosya').click()">📂 Yedek Yükle</button>
+        </div>
+    </div>
+
+    <!-- Sensör Ayarları -->
+    <div class="col-lg-7">
+        <div class="card-erp mb-4">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">🌡️ Sensör Ekle</h3>
+            <div class="row g-3">
+                <div class="col-6">
+                    <label class="form-label-erp">Sensör ID</label>
+                    <input type="text" id="s_id" class="form-control-erp" placeholder="don_odasi_1">
+                </div>
+                <div class="col-6">
+                    <label class="form-label-erp">Sensör Adı</label>
+                    <input type="text" id="s_adi" class="form-control-erp" placeholder="Don Odası">
+                </div>
+                <div class="col-6">
+                    <label class="form-label-erp">Min Alarm (°C)</label>
+                    <input type="number" id="s_min" class="form-control-erp" value="-25" step="1">
+                </div>
+                <div class="col-6">
+                    <label class="form-label-erp">Max Alarm (°C)</label>
+                    <input type="number" id="s_max" class="form-control-erp" value="5" step="1">
+                </div>
+            </div>
+            <button class="btn-primary-erp" style="margin-top:20px; width:100%;" onclick="sensorEkle()">+ Sensör Ekle</button>
+        </div>
+
+        <!-- Mevcut Sensörler -->
+        <div class="card-erp">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">📡 Mevcut Sensörler</h3>
+            <div id="sensor_listesi">
+                <div style="text-align:center; padding:24px; color:var(--text-muted);">Yükleniyor...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function sifreDegistir() {
+    const eski = document.getElementById('eski_sifre').value;
+    const yeni = document.getElementById('yeni_sifre').value;
+    const yeni2 = document.getElementById('yeni_sifre2').value;
+
+    if (!eski || !yeni) return showToast('Tüm alanları doldurun!', 'error');
+    if (yeni !== yeni2) return showToast('Yeni şifreler eşleşmiyor!', 'error');
+    if (yeni.length < 6) return showToast('Şifre en az 6 karakter olmalı!', 'error');
+
+    const r = await api('POST', '/api/sifre-degistir', { eski_sifre: eski, yeni_sifre: yeni });
+    if (r.ok) {
+        showToast('Şifre güncellendi!');
+        document.getElementById('eski_sifre').value = '';
+        document.getElementById('yeni_sifre').value = '';
+        document.getElementById('yeni_sifre2').value = '';
+    } else {
+        showToast(r.error || 'Hata!', 'error');
+    }
+}
+
+async function yedekIndir() {
+    const r = await api('GET', '/api/yedek');
+    const blob = new Blob([JSON.stringify(r, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `elfiga_yedek_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    showToast('Yedek indirildi!');
+}
+
+async function yedekYukle() {
+    const dosya = document.getElementById('yedek_dosya').files[0];
+    if (!dosya) return;
+    const text = await dosya.text();
+    try {
+        const data = JSON.parse(text);
+        if (!confirm('Mevcut veriler silinecek ve yedekten geri yüklenecek. Emin misiniz?')) return;
+        const r = await api('POST', '/api/yedek-yukle', data);
+        if (r.ok) showToast('Yedek yüklendi!');
+        else showToast(r.error || 'Hata!', 'error');
+    } catch(e) {
+        showToast('Geçersiz JSON dosyası!', 'error');
+    }
+}
+
+async function sensorEkle() {
+    const sid = document.getElementById('s_id').value.trim();
+    const adi = document.getElementById('s_adi').value.trim();
+    const min_alarm = parseFloat(document.getElementById('s_min').value);
+    const max_alarm = parseFloat(document.getElementById('s_max').value);
+
+    if (!sid || !adi) return showToast('Sensör ID ve adı zorunlu!', 'error');
+
+    const r = await api('POST', '/api/sicaklik/sensor-ekle', {sensor_id: sid, sensor_adi: adi, min_alarm, max_alarm});
+    if (r.ok) {
+        showToast(`✅ Sensör eklendi! API Key: ${r.api_key}`);
+        document.getElementById('s_id').value = '';
+        document.getElementById('s_adi').value = '';
+        sensorleriYukle();
+    } else {
+        showToast(r.error || 'Hata!', 'error');
+    }
+}
+
+async function sensorleriYukle() {
+    const r = await api('GET', '/api/sicaklik/sensorler');
+    const sensorler = Array.isArray(r) ? r : [];
+    const el = document.getElementById('sensor_listesi');
+
+    if (!sensorler.length) {
+        el.innerHTML = '<div style="text-align:center; padding:24px; color:var(--text-muted);">Henüz sensör yok</div>';
+        return;
+    }
+
+    el.innerHTML = `
+        <table class="tablo">
+            <thead><tr><th>ID</th><th>Adı</th><th>Min/Max</th><th>API Key</th></tr></thead>
+            <tbody>
+                ${sensorler.map(s => `
+                    <tr>
+                        <td style="font-size:13px; color:var(--text-muted);">${s.sensor_id}</td>
+                        <td style="font-weight:500;">${s.sensor_adi}</td>
+                        <td style="font-size:13px;">${s.min_alarm}°C / ${s.max_alarm}°C</td>
+                        <td>
+                            <code style="font-size:11px; background:#ffffff10; padding:2px 8px; border-radius:4px; color:#60b4ff;">
+                                ${(s.api_key||'').substring(0,16)}...
+                            </code>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+sensorleriYukle();
+</script>
+{% endblock %}

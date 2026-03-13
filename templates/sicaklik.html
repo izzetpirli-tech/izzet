@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Sıcaklık Takip — Elfiga ERP{% endblock %}
+{% block page_title %}Sıcaklık Takip{% endblock %}
+{% block page_sub %}Depo sıcaklık izleme{% endblock %}
+
+{% block content %}
+<!-- Canlı Ölçüm -->
+<div class="row g-3 mb-4" id="sensor_kartlar">
+    <div class="col-12" style="text-align:center; padding:40px; color:var(--text-muted);">
+        Sensörler yükleniyor...
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Grafik -->
+    <div class="col-lg-8">
+        <div class="card-erp">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="font-size:16px; font-weight:700; margin:0;">📈 Sıcaklık Geçmişi</h3>
+                <select id="sensor_sec" class="form-control-erp" style="width:auto;" onchange="gecmisYukle()">
+                    {% for s in sensorler %}
+                    <option value="{{ s.sensor_id }}">{{ s.sensor_adi }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div id="grafik_div" style="min-height:200px;">
+                <div style="text-align:center; padding:40px; color:var(--text-muted);">Veri bekleniyor...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alarmlar -->
+    <div class="col-lg-4">
+        <div class="card-erp">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">🚨 Son Alarmlar</h3>
+            <div id="alarm_listesi">
+                <div style="text-align:center; padding:24px; color:var(--text-muted);">Alarm yok</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Geçmiş Tablo -->
+<div class="card-erp mt-4">
+    <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">📋 Ölçüm Geçmişi</h3>
+    <div id="gecmis_tablo">
+        <div style="text-align:center; padding:32px; color:var(--text-muted);">Yükleniyor...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function sensorleriYukle() {
+    const r = await api('GET', '/api/sicaklik/sensorler');
+    const sensorler = Array.isArray(r) ? r : [];
+    const el = document.getElementById('sensor_kartlar');
+
+    if (!sensorler.length) {
+        el.innerHTML = `
+            <div class="col-12">
+                <div class="card-erp" style="text-align:center; padding:40px;">
+                    <div style="font-size:40px; margin-bottom:12px;">🌡️</div>
+                    <div style="color:var(--text-muted);">Henüz sensör eklenmemiş</div>
+                    <div style="margin-top:16px;">
+                        <a href="/ayarlar" class="btn-primary-erp" style="text-decoration:none;">+ Sensör Ekle</a>
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    el.innerHTML = sensorler.map(s => {
+        const temp = s.son_olcum ? s.son_olcum.toFixed(1) : '—';
+        const zaman = s.son_zaman || '—';
+        const alarm = s.son_olcum && (s.son_olcum > s.max_alarm || s.son_olcum < s.min_alarm);
+        return `
+            <div class="col-6 col-lg-3">
+                <div class="kpi-card" style="${alarm ? 'border-color:#e9456060;' : ''}">
+                    <div class="kpi-icon" style="background:${alarm ? '#e9456020' : '#0f346060'}; color:${alarm ? '#e94560' : '#60b4ff'}; font-size:24px;">🌡️</div>
+                    <div>
+                        <div class="kpi-label">${s.sensor_adi || s.sensor_id}</div>
+                        <div class="kpi-value" style="color:${alarm ? 'var(--accent)' : 'var(--text)'};">${temp}°C</div>
+                        <div class="kpi-sub">${zaman}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function gecmisYukle() {
+    const sid = document.getElementById('sensor_sec')?.value;
+    if (!sid) return;
+
+    const r = await api('GET', `/api/sicaklik/gecmis/${sid}`);
+    const olcumler = Array.isArray(r) ? r : [];
+
+    // Basit tablo grafik
+    const el = document.getElementById('grafik_div');
+    if (!olcumler.length) {
+        el.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);">Veri yok</div>';
+        return;
+    }
+
+    const son24 = olcumler.slice(0, 48);
+    const max = Math.max(...son24.map(o => o.sicaklik));
+    const min = Math.min(...son24.map(o => o.sicaklik));
+    const range = max - min || 1;
+
+    el.innerHTML = `
+        <div style="display:flex; align-items:flex-end; gap:3px; height:160px; padding:8px 0;">
+            ${son24.reverse().map(o => {
+                const h = Math.max(4, ((o.sicaklik - min) / range) * 140);
+                const color = o.sicaklik > 5 ? '#e94560' : o.sicaklik < -20 ? '#60b4ff' : '#00d68f';
+                return `<div title="${o.sicaklik}°C\n${o.kayit_zamani||''}" 
+                    style="flex:1; height:${h}px; background:${color}; border-radius:3px 3px 0 0; min-width:4px; opacity:0.8; cursor:pointer;"></div>`;
+            }).join('')}
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-top:4px;">
+            <span>48 ölçüm önce</span>
+            <span>Min: ${min.toFixed(1)}°C | Max: ${max.toFixed(1)}°C</span>
+            <span>Şimdi</span>
+        </div>
+    `;
+
+    // Tablo
+    document.getElementById('gecmis_tablo').innerHTML = `
+        <table class="tablo">
+            <thead><tr><th>Zaman</th><th>Sıcaklık</th><th>Durum</th></tr></thead>
+            <tbody>
+                ${olcumler.slice(0,20).map(o => `
+                    <tr>
+                        <td style="color:var(--text-muted); font-size:13px;">${o.kayit_zamani||'—'}</td>
+                        <td style="font-weight:600; color:${o.sicaklik > 5 ? 'var(--danger)' : o.sicaklik < -20 ? '#60b4ff' : 'var(--success)'};">
+                            ${o.sicaklik?.toFixed(1)}°C
+                        </td>
+                        <td>
+                            <span class="${o.sicaklik > 5 ? 'badge-satis' : o.sicaklik < -20 ? 'badge-uretim' : 'badge-giris'}">
+                                ${o.sicaklik > 5 ? '🔴 Yüksek' : o.sicaklik < -20 ? '🔵 Düşük' : '🟢 Normal'}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+sensorleriYukle();
+gecmisYukle();
+setInterval(sensorleriYukle, 60000);
+</script>
+{% endblock %}

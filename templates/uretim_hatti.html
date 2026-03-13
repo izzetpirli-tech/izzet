@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% block title %}Üretim Hattı — Elfiga ERP{% endblock %}
+{% block page_title %}Üretim Hattı{% endblock %}
+{% block page_sub %}Makine durumlarını takip et{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn-primary-erp" onclick="makineEkleModal()">+ Makine Ekle</button>
+{% endblock %}
+
+{% block head %}
+<style>
+.hat-canvas {
+    width: 100%;
+    min-height: 500px;
+    background: #0a0f1e;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+.makine-kart {
+    position: absolute;
+    width: 140px;
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+}
+.makine-kart:hover { transform: scale(1.03); box-shadow: 0 8px 32px #00000060; }
+.makine-kart.aktif { border-color: #00d68f; box-shadow: 0 0 20px #00d68f30; }
+.makine-kart.durus { border-color: #e94560; box-shadow: 0 0 20px #e9456030; }
+.makine-kart.bakim { border-color: #ffaa00; box-shadow: 0 0 20px #ffaa0030; }
+.makine-ikon { font-size: 28px; text-align: center; margin-bottom: 8px; }
+.makine-ad { font-size: 12px; font-weight: 600; text-align: center; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.makine-durum { font-size: 10px; text-align: center; margin-top: 4px; border-radius: 4px; padding: 2px 6px; }
+.durum-aktif { background: #00d68f20; color: #00d68f; }
+.durum-durus { background: #e9456020; color: #e94560; }
+.durum-bakim { background: #ffaa0020; color: #ffaa00; }
+
+.svg-hat {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Özet -->
+<div class="row g-3 mb-4" id="ozet_div"></div>
+
+<!-- Hat Canvas -->
+<div class="card-erp mb-4" style="padding: 0; overflow: hidden;">
+    <div style="padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="font-size:15px; font-weight:700; margin:0;">🏭 Hat Görünümü</h3>
+        <div style="display:flex; gap:12px; font-size:12px; color:var(--text-muted);">
+            <span><span style="color:#00d68f;">●</span> Aktif</span>
+            <span><span style="color:#e94560;">●</span> Duruş</span>
+            <span><span style="color:#ffaa00;">●</span> Bakım</span>
+        </div>
+    </div>
+    <div class="hat-canvas" id="hat_canvas">
+        <svg class="svg-hat" id="svg_hat"></svg>
+        <div id="makineler_div"></div>
+        <div id="bos_mesaj" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; color:var(--text-muted);">
+            <div style="font-size:48px; margin-bottom:12px;">🏭</div>
+            <div style="font-size:15px; font-weight:600;">Henüz makine eklenmemiş</div>
+            <div style="font-size:13px; margin-top:6px;">Üst sağdaki butona tıklayarak makine ekle</div>
+        </div>
+    </div>
+</div>
+
+<!-- Durum Listesi -->
+<div class="card-erp">
+    <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">📋 Makine Durumları</h3>
+    <div id="makine_tablo"></div>
+</div>
+
+<!-- Makine Ekle Modal -->
+<div id="ekle_modal" style="display:none; position:fixed; inset:0; background:#00000080; z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:440px; margin:16px;">
+        <h3 style="font-size:16px; font-weight:700; margin-bottom:24px;">+ Makine Ekle</h3>
+        <div style="margin-bottom:16px;">
+            <label class="form-label-erp">Makine Adı</label>
+            <input type="text" id="m_adi" class="form-control-erp" placeholder="Hamur Makinesi">
+        </div>
+        <div class="row g-3 mb-4">
+            <div class="col-6">
+                <label class="form-label-erp">İkon</label>
+                <select id="m_ikon" class="form-control-erp">
+                    <option value="⚙️">⚙️ Makine</option>
+                    <option value="🏭">🏭 Fabrika</option>
+                    <option value="🔧">🔧 Alet</option>
+                    <option value="🌀">🌀 Karıştırıcı</option>
+                    <option value="❄️">❄️ Soğutucu</option>
+                    <option value="🔥">🔥 Pişiricı</option>
+                    <option value="📦">📦 Paketleme</option>
+                    <option value="🚛">🚛 Taşıma</option>
+                </select>
+            </div>
+            <div class="col-6">
+                <label class="form-label-erp">Grup</label>
+                <input type="text" id="m_grup" class="form-control-erp" placeholder="Hamur Hattı">
+            </div>
+        </div>
+        <div style="display:flex; gap:12px;">
+            <button class="btn-primary-erp" style="flex:1;" onclick="makineKaydet()">💾 Ekle</button>
+            <button class="btn-ghost" onclick="document.getElementById('ekle_modal').style.display='none'">İptal</button>
+        </div>
+    </div>
+</div>
+
+<!-- Durum Değiştir Modal -->
+<div id="durum_modal" style="display:none; position:fixed; inset:0; background:#00000080; z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:380px; margin:16px;">
+        <h3 style="font-size:16px; font-weight:700; margin-bottom:8px;" id="durum_baslik">Makine Durumu</h3>
+        <p id="durum_aciklama" style="font-size:13px; color:var(--text-muted); margin-bottom:24px;"></p>
+        <input type="hidden" id="durum_idx">
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <button onclick="durumGuncelle('aktif')" style="background:#00d68f20; border:1px solid #00d68f40; color:#00d68f; border-radius:10px; padding:12px; font-size:14px; font-weight:600; cursor:pointer;">✅ Aktif — Çalışıyor</button>
+            <button onclick="durumGuncelle('durus')" style="background:#e9456020; border:1px solid #e9456040; color:#e94560; border-radius:10px; padding:12px; font-size:14px; font-weight:600; cursor:pointer;">🔴 Duruş — Arıza</button>
+            <button onclick="durumGuncelle('bakim')" style="background:#ffaa0020; border:1px solid #ffaa0040; color:#ffaa00; border-radius:10px; padding:12px; font-size:14px; font-weight:600; cursor:pointer;">🔧 Bakım</button>
+            <button onclick="makineKaldir()" style="background:#ffffff08; border:1px solid var(--border); color:var(--text-muted); border-radius:10px; padding:10px; font-size:13px; cursor:pointer; margin-top:4px;">🗑️ Makineyi Kaldır</button>
+        </div>
+        <button class="btn-ghost" style="width:100%; margin-top:12px;" onclick="document.getElementById('durum_modal').style.display='none'">İptal</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let makineler = JSON.parse(localStorage.getItem('elfiga_makineler') || '[]');
+// localStorage yerine API'den alalım
+async function yukle() {
+    const r = await api('GET', '/api/makineler');
+    if (Array.isArray(r)) makineler = r;
+    render();
+}
+
+async function makineKaydet() {
+    const adi = document.getElementById('m_adi').value.trim();
+    const ikon = document.getElementById('m_ikon').value;
+    const grup = document.getElementById('m_grup').value.trim();
+    if (!adi) return showToast('Makine adı zorunlu!', 'error');
+
+    const r = await api('POST', '/api/makineler', {
+        adi, ikon, grup,
+        durum: 'aktif',
+        x: 40 + (makineler.length % 4) * 180,
+        y: 40 + Math.floor(makineler.length / 4) * 180
+    });
+    if (r.ok) {
+        showToast('Makine eklendi!');
+        document.getElementById('ekle_modal').style.display = 'none';
+        document.getElementById('m_adi').value = '';
+        yukle();
+    }
+}
+
+function makineEkleModal() {
+    document.getElementById('ekle_modal').style.display = 'flex';
+}
+
+function makineKart(m, i) {
+    return `
+        <div class="makine-kart ${m.durum}" 
+             style="left:${m.x}px; top:${m.y}px;"
+             onclick="durumModal(${i})"
+             id="mkart_${i}">
+            <div class="makine-ikon">${m.ikon}</div>
+            <div class="makine-ad">${m.adi}</div>
+            <div class="makine-durum durum-${m.durum}">
+                ${m.durum === 'aktif' ? '● Aktif' : m.durum === 'durus' ? '● Duruş' : '● Bakım'}
+            </div>
+        </div>
+    `;
+}
+
+function render() {
+    const div = document.getElementById('makineler_div');
+    const bos = document.getElementById('bos_mesaj');
+    const canvas = document.getElementById('hat_canvas');
+
+    if (!makineler.length) {
+        div.innerHTML = '';
+        bos.style.display = 'flex';
+        document.getElementById('makine_tablo').innerHTML = '';
+        ozetGoster();
+        return;
+    }
+
+    bos.style.display = 'none';
+
+    // Canvas yüksekliği ayarla
+    const maxY = Math.max(...makineler.map(m => m.y)) + 200;
+    canvas.style.minHeight = Math.max(500, maxY) + 'px';
+
+    div.innerHTML = makineler.map((m, i) => makineKart(m, i)).join('');
+
+    // Bağlantı çizgileri (grupları birleştir)
+    const svg = document.getElementById('svg_hat');
+    let paths = '';
+    const gruplar = {};
+    makineler.forEach((m, i) => {
+        if (m.grup) {
+            if (!gruplar[m.grup]) gruplar[m.grup] = [];
+            gruplar[m.grup].push(i);
+        }
+    });
+    Object.values(gruplar).forEach(idxler => {
+        for (let k = 0; k < idxler.length - 1; k++) {
+            const a = makineler[idxler[k]];
+            const b = makineler[idxler[k+1]];
+            const x1 = a.x + 70, y1 = a.y + 70;
+            const x2 = b.x + 70, y2 = b.y + 70;
+            const cx = (x1 + x2) / 2;
+            paths += `<path d="M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}" stroke="#ffffff20" stroke-width="2" fill="none" stroke-dasharray="6,4"/>
+                      <circle cx="${x2}" cy="${y2}" r="5" fill="#ffffff30"/>`;
+        }
+    });
+    svg.innerHTML = paths;
+
+    // Tablo
+    document.getElementById('makine_tablo').innerHTML = `
+        <table class="tablo">
+            <thead><tr><th>Makine</th><th>Grup</th><th>Durum</th><th>Son Güncelleme</th><th></th></tr></thead>
+            <tbody>
+                ${makineler.map((m, i) => `
+                    <tr>
+                        <td><span style="font-size:18px; margin-right:8px;">${m.ikon}</span><strong>${m.adi}</strong></td>
+                        <td style="color:var(--text-muted);">${m.grup || '—'}</td>
+                        <td><span class="durum-${m.durum}" style="border-radius:6px; padding:3px 10px; font-size:12px; font-weight:600;">
+                            ${m.durum === 'aktif' ? '✅ Aktif' : m.durum === 'durus' ? '🔴 Duruş' : '🔧 Bakım'}
+                        </span></td>
+                        <td style="color:var(--text-muted); font-size:13px;">${m.guncelleme || '—'}</td>
+                        <td><button class="btn-ghost" style="padding:4px 12px; font-size:12px;" onclick="durumModal(${i})">Durum Değiştir</button></td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+
+    ozetGoster();
+}
+
+function ozetGoster() {
+    const aktif = makineler.filter(m => m.durum === 'aktif').length;
+    const durus = makineler.filter(m => m.durum === 'durus').length;
+    const bakim = makineler.filter(m => m.durum === 'bakim').length;
+
+    document.getElementById('ozet_div').innerHTML = `
+        <div class="col-4">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#00d68f20; color:#00d68f;">✅</div>
+                <div><div class="kpi-label">Aktif</div><div class="kpi-value">${aktif}</div></div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#e9456020; color:#e94560;">🔴</div>
+                <div><div class="kpi-label">Duruş</div><div class="kpi-value">${durus}</div></div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#ffaa0020; color:#ffaa00;">🔧</div>
+                <div><div class="kpi-label">Bakım</div><div class="kpi-value">${bakim}</div></div>
+            </div>
+        </div>
+    `;
+}
+
+function durumModal(idx) {
+    const m = makineler[idx];
+    document.getElementById('durum_idx').value = idx;
+    document.getElementById('durum_baslik').textContent = m.ikon + ' ' + m.adi;
+    document.getElementById('durum_aciklama').textContent = `Mevcut durum: ${m.durum === 'aktif' ? 'Aktif' : m.durum === 'durus' ? 'Duruş' : 'Bakım'} — Yeni durum seçin:`;
+    document.getElementById('durum_modal').style.display = 'flex';
+}
+
+async function durumGuncelle(yeniDurum) {
+    const idx = parseInt(document.getElementById('durum_idx').value);
+    const r = await api('PUT', `/api/makineler/${makineler[idx].id}`, {durum: yeniDurum});
+    if (r.ok) {
+        showToast('Durum güncellendi!');
+        document.getElementById('durum_modal').style.display = 'none';
+        yukle();
+    }
+}
+
+async function makineKaldir() {
+    const idx = parseInt(document.getElementById('durum_idx').value);
+    if (!confirm('Bu makineyi kaldırmak istiyor musunuz?')) return;
+    const r = await api('DELETE', `/api/makineler/${makineler[idx].id}`);
+    if (r.ok) {
+        showToast('Makine kaldırıldı!');
+        document.getElementById('durum_modal').style.display = 'none';
+        yukle();
+    }
+}
+
+yukle();
+</script>
+{% endblock %}

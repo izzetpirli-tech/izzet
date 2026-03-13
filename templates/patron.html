@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Patron Ekranı — Elfiga ERP{% endblock %}
+{% block page_title %}Patron Ekranı{% endblock %}
+{% block page_sub %}Genel durum özeti{% endblock %}
+
+{% block content %}
+<!-- KPI -->
+<div class="row g-3 mb-4" id="kpi_div"></div>
+
+<!-- Hazır Manti Satış -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-4">
+        <div class="card-erp">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">🥟 Hazır Manti Satışı</h3>
+            <div style="margin-bottom:16px;">
+                <label class="form-label-erp">Satış Miktarı (KG)</label>
+                <input type="number" id="satis_kg" class="form-control-erp" placeholder="0" min="0.1" step="0.1">
+            </div>
+            <div style="margin-bottom:20px;">
+                <label class="form-label-erp">Fiyat (TL/KG)</label>
+                <input type="number" id="satis_fiyat" class="form-control-erp" placeholder="0" min="0" step="1">
+            </div>
+            <button class="btn-primary-erp" style="width:100%; padding:12px;" onclick="satisYap()">
+                💰 Satış Kaydet
+            </button>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card-erp">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">📊 Stok Dağılımı</h3>
+            <div id="stok_grafik"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Son İşlemler -->
+<div class="card-erp">
+    <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">📋 Son İşlemler</h3>
+    <div id="son_islemler"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function yukle() {
+    const [h, s] = await Promise.all([
+        api('GET', '/api/hareketler'),
+        api('GET', '/api/stoklar')
+    ]);
+    const hareketler = Array.isArray(h) ? h : [];
+    const stoklar = s || {};
+
+    // KPI
+    const hazirManti = await api('GET', '/api/hazir-manti');
+    const hazir = hazirManti.miktar || 0;
+    const toplam = Object.values(stoklar).reduce((a,b) => a+b, 0);
+    const kritik = Object.values(stoklar).filter(v => v > 0 && v < 50).length;
+    const bugunSatis = hareketler.filter(h => h.islem === 'Satış' && h.tarih === bugunTarih()).reduce((a,h) => a + Math.abs(h.miktar||0), 0);
+
+    document.getElementById('kpi_div').innerHTML = `
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#00d68f20; color:#00d68f; font-size:24px;">🥟</div>
+                <div>
+                    <div class="kpi-label">Hazır Mantı</div>
+                    <div class="kpi-value">${hazir.toFixed(1)}</div>
+                    <div class="kpi-sub">KG stokta</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#0f346060; color:#60b4ff; font-size:24px;">📦</div>
+                <div>
+                    <div class="kpi-label">Hammadde</div>
+                    <div class="kpi-value">${toplam.toFixed(0)}</div>
+                    <div class="kpi-sub">KG toplam</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#e9456020; color:#e94560; font-size:24px;">💰</div>
+                <div>
+                    <div class="kpi-label">Bugün Satış</div>
+                    <div class="kpi-value">${bugunSatis.toFixed(1)}</div>
+                    <div class="kpi-sub">KG satıldı</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#ffaa0020; color:#ffaa00; font-size:24px;">⚠️</div>
+                <div>
+                    <div class="kpi-label">Kritik Stok</div>
+                    <div class="kpi-value">${kritik}</div>
+                    <div class="kpi-sub">malzeme az</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Stok grafik (top 8)
+    const top8 = Object.entries(stoklar).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    const max = top8[0]?.[1] || 1;
+    document.getElementById('stok_grafik').innerHTML = top8.map(([m,v]) => `
+        <div style="margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                <span style="font-size:13px; font-weight:500;">${m}</span>
+                <span style="font-size:13px; color:var(--text-muted);">${v.toFixed(1)} KG</span>
+            </div>
+            <div style="background:#ffffff15; border-radius:4px; height:8px;">
+                <div style="background:${v < 50 ? '#ffaa00' : '#00d68f'}; width:${(v/max*100).toFixed(1)}%; height:8px; border-radius:4px; transition:width 0.5s;"></div>
+            </div>
+        </div>
+    `).join('');
+
+    // Son işlemler
+    document.getElementById('son_islemler').innerHTML = `
+        <table class="tablo">
+            <thead><tr><th>Tarih</th><th>Malzeme</th><th>Miktar</th><th>İşlem</th></tr></thead>
+            <tbody>
+                ${hareketler.slice(0,10).map(h => `
+                    <tr>
+                        <td style="color:var(--text-muted); font-size:13px;">${h.tarih||'—'}</td>
+                        <td>${h.malzeme||'—'}</td>
+                        <td>${Math.abs(h.miktar||0).toFixed(1)} KG</td>
+                        <td>
+                            <span class="${h.islem==='Giriş'?'badge-giris':h.islem==='Üretim'?'badge-uretim':h.islem==='Satış'?'badge-satis':'badge-zayi'}">
+                                ${h.islem||'—'}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function bugunTarih() {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+}
+
+async function satisYap() {
+    const kg = parseFloat(document.getElementById('satis_kg').value);
+    const fiyat = parseFloat(document.getElementById('satis_fiyat').value) || 0;
+    if (!kg || kg <= 0) return showToast('Geçerli miktar girin!', 'error');
+
+    const r = await api('POST', '/api/satis', { miktar: kg, fiyat });
+    if (r.ok) {
+        showToast(`✅ ${kg} KG satış kaydedildi!`);
+        document.getElementById('satis_kg').value = '';
+        yukle();
+    } else {
+        showToast(r.error || 'Hata!', 'error');
+    }
+}
+
+yukle();
+setInterval(yukle, 30000); // 30 sn'de bir güncelle
+</script>
+{% endblock %}

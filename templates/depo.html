@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Depom — Elfiga ERP{% endblock %}
+{% block page_title %}Depom{% endblock %}
+{% block page_sub %}Stok seviyeleri ve durum{% endblock %}
+
+{% block topbar_actions %}
+<a href="/stok-giris" class="btn-primary-erp" style="text-decoration:none;">+ Stok Girişi</a>
+{% endblock %}
+
+{% block content %}
+<!-- Özet -->
+<div class="row g-3 mb-4" id="ozet_kartlar"></div>
+
+<!-- Filtre & Arama -->
+<div class="card-erp mb-4">
+    <div class="row g-3">
+        <div class="col-12 col-lg-5">
+            <input type="text" id="arama" class="form-control-erp" placeholder="🔍 Malzeme ara..." oninput="filtrele()">
+        </div>
+        <div class="col-6 col-lg-3">
+            <select id="f_durum" class="form-control-erp" onchange="filtrele()">
+                <option value="">Tüm Durumlar</option>
+                <option value="kritik">⚠️ Kritik (&lt;50 KG)</option>
+                <option value="normal">✅ Normal</option>
+                <option value="bos">❌ Tükendi</option>
+            </select>
+        </div>
+        <div class="col-6 col-lg-4">
+            <select id="f_siralama" class="form-control-erp" onchange="filtrele()">
+                <option value="azalan">Miktara göre (Azalan)</option>
+                <option value="artan">Miktara göre (Artan)</option>
+                <option value="isim">İsme göre (A-Z)</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Stok Listesi -->
+<div class="card-erp">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h3 style="font-size:16px; font-weight:700; margin:0;">Stok Durumu</h3>
+        <span id="kayit_sayisi" style="font-size:13px; color:var(--text-muted);"></span>
+    </div>
+    <div id="stok_listesi">
+        <div style="text-align:center; padding:40px; color:var(--text-muted);">Yükleniyor...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tumStoklar = {};
+
+async function yukle() {
+    const r = await api('GET', '/api/stoklar');
+    tumStoklar = r || {};
+    ozetGoster();
+    filtrele();
+}
+
+function ozetGoster() {
+    const malzemeler = Object.entries(tumStoklar);
+    const toplam = malzemeler.reduce((a, [,v]) => a + v, 0);
+    const kritik = malzemeler.filter(([,v]) => v > 0 && v < 50).length;
+    const bos = malzemeler.filter(([,v]) => v <= 0).length;
+    const dolu = malzemeler.filter(([,v]) => v >= 50).length;
+
+    document.getElementById('ozet_kartlar').innerHTML = `
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#0f346060; color:#60b4ff;">📦</div>
+                <div>
+                    <div class="kpi-label">Toplam Stok</div>
+                    <div class="kpi-value">${toplam.toFixed(0)}</div>
+                    <div class="kpi-sub">KG toplam</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#00d68f20; color:#00d68f;">✅</div>
+                <div>
+                    <div class="kpi-label">Yeterli</div>
+                    <div class="kpi-value">${dolu}</div>
+                    <div class="kpi-sub">malzeme</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#ffaa0020; color:#ffaa00;">⚠️</div>
+                <div>
+                    <div class="kpi-label">Kritik</div>
+                    <div class="kpi-value">${kritik}</div>
+                    <div class="kpi-sub">50 KG altı</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#e9456020; color:#e94560;">❌</div>
+                <div>
+                    <div class="kpi-label">Tükendi</div>
+                    <div class="kpi-value">${bos}</div>
+                    <div class="kpi-sub">malzeme</div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function filtrele() {
+    const arama = document.getElementById('arama').value.toLowerCase();
+    const durum = document.getElementById('f_durum').value;
+    const siralama = document.getElementById('f_siralama').value;
+
+    let liste = Object.entries(tumStoklar);
+
+    if (arama) liste = liste.filter(([m]) => m.toLowerCase().includes(arama));
+    if (durum === 'kritik') liste = liste.filter(([,v]) => v > 0 && v < 50);
+    else if (durum === 'normal') liste = liste.filter(([,v]) => v >= 50);
+    else if (durum === 'bos') liste = liste.filter(([,v]) => v <= 0);
+
+    if (siralama === 'azalan') liste.sort((a,b) => b[1]-a[1]);
+    else if (siralama === 'artan') liste.sort((a,b) => a[1]-b[1]);
+    else liste.sort((a,b) => a[0].localeCompare(b[0], 'tr'));
+
+    document.getElementById('kayit_sayisi').textContent = `${liste.length} malzeme`;
+    listeyiCiz(liste);
+}
+
+function durumuGetir(miktar) {
+    if (miktar <= 0) return { cls: 'badge-satis', text: 'Tükendi', bar: 0, color: '#e94560' };
+    if (miktar < 50) return { cls: 'badge-zayi', text: 'Kritik', bar: Math.min(miktar/50*100, 100), color: '#ffaa00' };
+    return { cls: 'badge-giris', text: 'Normal', bar: Math.min(miktar/500*100, 100), color: '#00d68f' };
+}
+
+function listeyiCiz(liste) {
+    const el = document.getElementById('stok_listesi');
+    if (!liste.length) {
+        el.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);">Malzeme bulunamadı</div>';
+        return;
+    }
+    el.innerHTML = `
+        <table class="tablo">
+            <thead><tr>
+                <th>Malzeme</th>
+                <th>Miktar</th>
+                <th style="min-width:150px;">Doluluk</th>
+                <th>Durum</th>
+                <th></th>
+            </tr></thead>
+            <tbody>
+                ${liste.map(([m, v]) => {
+                    const d = durumuGetir(v);
+                    return `<tr>
+                        <td style="font-weight:500;">${m}</td>
+                        <td style="font-weight:600;">${v.toFixed(1)} KG</td>
+                        <td>
+                            <div style="background:#ffffff15; border-radius:4px; height:6px; width:100%;">
+                                <div style="background:${d.color}; width:${d.bar}%; height:6px; border-radius:4px; transition:width 0.3s;"></div>
+                            </div>
+                        </td>
+                        <td><span class="${d.cls}">${d.text}</span></td>
+                        <td>
+                            <a href="/stok-giris" class="btn-ghost" style="text-decoration:none; padding:4px 12px; font-size:12px;">+ Giriş</a>
+                        </td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+yukle();
+</script>
+{% endblock %}

@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}Üretim — Elfiga ERP{% endblock %}
+{% block page_title %}Üretim{% endblock %}
+{% block page_sub %}Manti üretimi başlat{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Üretim Formu -->
+    <div class="col-lg-5">
+        <div class="card-erp mb-4">
+            <h3 style="font-size:16px; font-weight:700; margin-bottom:24px;">🏭 Üretim Başlat</h3>
+
+            <div style="margin-bottom:16px;">
+                <label class="form-label-erp">Reçete</label>
+                <select id="recete_sec" class="form-control-erp" onchange="receteYukle()">
+                    <option value="">— Seçiniz —</option>
+                    {% for r in receteler %}
+                    <option value="{{ r }}">{{ r }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <label class="form-label-erp">Üretim Miktarı (KG)</label>
+                <input type="number" id="uretim_kg" class="form-control-erp" placeholder="0" min="1" step="1" oninput="kontrolEt()">
+            </div>
+
+            <div style="margin-bottom:24px;">
+                <label class="form-label-erp">Tarih</label>
+                <input type="date" id="uretim_tarih" class="form-control-erp">
+            </div>
+
+            <!-- Stok kontrol sonucu -->
+            <div id="kontrol_sonuc" style="display:none; margin-bottom:20px;"></div>
+
+            <button class="btn-primary-erp" style="width:100%; padding:13px;" onclick="uretimBaslat()" id="uretim_btn" disabled>
+                🏭 Üretimi Başlat
+            </button>
+        </div>
+
+        <!-- Reçete Detayı -->
+        <div class="card-erp" id="recete_detay" style="display:none;">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:16px;">📋 Reçete İçeriği</h3>
+            <div id="recete_icerik"></div>
+        </div>
+    </div>
+
+    <!-- Son Üretimler -->
+    <div class="col-lg-7">
+        <div class="card-erp">
+            <h3 style="font-size:16px; font-weight:700; margin-bottom:20px;">📦 Son Üretimler</h3>
+            <div id="uretim_listesi">
+                <div style="text-align:center; padding:40px; color:var(--text-muted);">Yükleniyor...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let receteler = {};
+let stoklar = {};
+
+document.getElementById('uretim_tarih').value = new Date().toISOString().split('T')[0];
+
+async function yukle() {
+    const [r, s] = await Promise.all([
+        api('GET', '/api/receteler'),
+        api('GET', '/api/stoklar')
+    ]);
+    receteler = r || {};
+    stoklar = s || {};
+    uretimListesiYukle();
+}
+
+function receteYukle() {
+    const sec = document.getElementById('recete_sec').value;
+    const detayDiv = document.getElementById('recete_detay');
+    const icerikDiv = document.getElementById('recete_icerik');
+
+    if (!sec || !receteler[sec]) {
+        detayDiv.style.display = 'none';
+        return;
+    }
+
+    const oranlar = receteler[sec].oranlar || {};
+    const items = Object.entries(oranlar).filter(([,v]) => v > 0);
+
+    if (!items.length) {
+        detayDiv.style.display = 'none';
+        return;
+    }
+
+    icerikDiv.innerHTML = `
+        <table class="tablo">
+            <thead><tr><th>Malzeme</th><th>1 KG için</th><th>Stok</th></tr></thead>
+            <tbody>
+                ${items.map(([m, oran]) => `
+                    <tr>
+                        <td>${m}</td>
+                        <td>${oran.toFixed(3)} KG</td>
+                        <td style="color:${(stoklar[m]||0) > 10 ? 'var(--success)' : 'var(--danger)'};">
+                            ${(stoklar[m]||0).toFixed(1)} KG
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+    detayDiv.style.display = 'block';
+    kontrolEt();
+}
+
+function kontrolEt() {
+    const sec = document.getElementById('recete_sec').value;
+    const kg = parseFloat(document.getElementById('uretim_kg').value) || 0;
+    const sonucDiv = document.getElementById('kontrol_sonuc');
+    const btn = document.getElementById('uretim_btn');
+
+    if (!sec || kg <= 0) {
+        sonucDiv.style.display = 'none';
+        btn.disabled = true;
+        return;
+    }
+
+    const oranlar = (receteler[sec] || {}).oranlar || {};
+    const yetersiz = [];
+
+    Object.entries(oranlar).forEach(([m, oran]) => {
+        if (oran <= 0) return;
+        const lazim = kg * oran;
+        const mevcut = stoklar[m] || 0;
+        if (mevcut < lazim - 0.001) {
+            yetersiz.push(`${m}: lazım ${lazim.toFixed(2)} KG, mevcut ${mevcut.toFixed(2)} KG`);
+        }
+    });
+
+    if (yetersiz.length) {
+        sonucDiv.style.display = 'block';
+        sonucDiv.innerHTML = `
+            <div style="background:#e9456015; border:1px solid #e9456040; border-radius:10px; padding:14px;">
+                <div style="color:var(--accent); font-weight:600; margin-bottom:8px;">❌ Yetersiz Stok</div>
+                ${yetersiz.map(y => `<div style="font-size:13px; color:var(--text-muted); margin-top:4px;">• ${y}</div>`).join('')}
+            </div>
+        `;
+        btn.disabled = true;
+    } else {
+        sonucDiv.style.display = 'block';
+        sonucDiv.innerHTML = `
+            <div style="background:#00d68f15; border:1px solid #00d68f40; border-radius:10px; padding:14px;">
+                <div style="color:var(--success); font-weight:600;">✅ Stok Yeterli — Üretim Başlayabilir</div>
+            </div>
+        `;
+        btn.disabled = false;
+    }
+}
+
+async function uretimBaslat() {
+    const sec = document.getElementById('recete_sec').value;
+    const kg = parseFloat(document.getElementById('uretim_kg').value);
+    const tarihVal = document.getElementById('uretim_tarih').value;
+    const tarih = tarihVal ? tarihVal.split('-').reverse().join('.') : '';
+
+    if (!sec || !kg) return showToast('Reçete ve miktar zorunlu!', 'error');
+
+    const r = await api('POST', '/api/uretim', { recete: sec, miktar: kg, tarih });
+    if (r.ok) {
+        showToast(`✅ ${kg} KG üretim tamamlandı! Parti: ${r.parti}`);
+        document.getElementById('uretim_kg').value = '';
+        document.getElementById('kontrol_sonuc').style.display = 'none';
+        document.getElementById('uretim_btn').disabled = true;
+        const [s] = await Promise.all([api('GET', '/api/stoklar')]);
+        stoklar = s || {};
+        kontrolEt();
+        uretimListesiYukle();
+    } else {
+        showToast(r.error || 'Hata!', 'error');
+    }
+}
+
+async function uretimListesiYukle() {
+    const r = await api('GET', '/api/hareketler');
+    const hareketler = (Array.isArray(r) ? r : []).filter(h => h.islem === 'Üretim');
+    const el = document.getElementById('uretim_listesi');
+
+    if (!hareketler.length) {
+        el.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);">Henüz üretim yok</div>';
+        return;
+    }
+
+    el.innerHTML = `
+        <table class="tablo">
+            <thead><tr>
+                <th>Tarih</th>
+                <th>Ürün</th>
+                <th>Miktar</th>
+                <th>Parti</th>
+            </tr></thead>
+            <tbody>
+                ${hareketler.slice(0, 20).map(h => `
+                    <tr>
+                        <td style="color:var(--text-muted); font-size:13px;">${h.tarih||'—'}</td>
+                        <td style="font-weight:500;">${h.malzeme||'—'}</td>
+                        <td><span class="badge-uretim">${(h.miktar||0).toFixed(1)} KG</span></td>
+                        <td style="font-size:12px; color:var(--text-muted);">${h.parti||'—'}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+yukle();
+</script>
+{% endblock %}
