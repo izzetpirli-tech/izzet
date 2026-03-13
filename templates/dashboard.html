@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Elfiga ERP{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_sub %}Genel bakış{% endblock %}
+
+{% block content %}
+<!-- KPI Kartları -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background:#00d68f20; color:#00d68f;">🥟</div>
+            <div>
+                <div class="kpi-label">Hazır Mantı</div>
+                <div class="kpi-value">{{ hazir_manti|round(1) }}</div>
+                <div class="kpi-sub">KG stokta</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background:#0f346060; color:#60b4ff;">📦</div>
+            <div>
+                <div class="kpi-label">Toplam Stok</div>
+                <div class="kpi-value">{{ toplam_stok_kg }}</div>
+                <div class="kpi-sub">KG hammadde</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background:#ffaa0020; color:#ffaa00;">⚠️</div>
+            <div>
+                <div class="kpi-label">Kritik Stok</div>
+                <div class="kpi-value">{{ kritik_stok|length }}</div>
+                <div class="kpi-sub">malzeme az</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background:#e9456020; color:#e94560;">📋</div>
+            <div>
+                <div class="kpi-label">Son İşlem</div>
+                <div class="kpi-value" style="font-size:16px;">
+                    {% if son_hareketler %}{{ son_hareketler[0].get('tarih','—') }}{% else %}—{% endif %}
+                </div>
+                <div class="kpi-sub">tarihinde</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <!-- Son Hareketler -->
+    <div class="col-lg-7">
+        <div class="card-erp">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="font-size:16px; font-weight:700; margin:0;">Son Hareketler</h3>
+                <a href="/hareketler" class="btn-ghost" style="text-decoration:none; font-size:13px;">Tümü →</a>
+            </div>
+            <table class="tablo">
+                <thead>
+                    <tr>
+                        <th>Tarih</th>
+                        <th>Malzeme</th>
+                        <th>Miktar</th>
+                        <th>İşlem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for h in son_hareketler %}
+                    <tr>
+                        <td style="color:var(--text-muted);">{{ h.get('tarih','—') }}</td>
+                        <td>{{ h.get('malzeme','—') }}</td>
+                        <td>{{ h.get('miktar',0)|round(1) }} KG</td>
+                        <td>
+                            {% if h.get('islem') == 'Giriş' %}<span class="badge-giris">Giriş</span>
+                            {% elif h.get('islem') == 'Üretim' %}<span class="badge-uretim">Üretim</span>
+                            {% elif h.get('islem') == 'Satış' %}<span class="badge-satis">Satış</span>
+                            {% else %}<span class="badge-zayi">{{ h.get('islem','—') }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:24px;">Henüz hareket yok</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Kritik Stoklar -->
+    <div class="col-lg-5">
+        <div class="card-erp">
+            <div style="margin-bottom:20px;">
+                <h3 style="font-size:16px; font-weight:700; margin:0;">⚠️ Kritik Stoklar</h3>
+                <p style="font-size:12px; color:var(--text-muted); margin:4px 0 0;">50 KG altı malzemeler</p>
+            </div>
+            {% for m in kritik_stok %}
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border);">
+                <span style="font-size:14px;">{{ m }}</span>
+                <span style="color:var(--warning); font-weight:600; font-size:14px;">{{ stoklar.get(m,0)|round(1) }} KG</span>
+            </div>
+            {% else %}
+            <div style="text-align:center; padding:32px; color:var(--text-muted);">
+                <div style="font-size:32px; margin-bottom:8px;">✅</div>
+                <div>Tüm stoklar yeterli</div>
+            </div>
+            {% endfor %}
+            <div style="margin-top:16px;">
+                <a href="/stok-giris" class="btn-primary-erp" style="text-decoration:none; display:inline-block;">+ Stok Girişi</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

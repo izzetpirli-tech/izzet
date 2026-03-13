@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Elfiga ERP{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #1a1a2e;
+            --secondary: #16213e;
+            --accent: #e94560;
+            --accent2: #0f3460;
+            --sidebar-w: 240px;
+            --text: #e8e8f0;
+            --text-muted: #8888aa;
+            --border: #ffffff12;
+            --card: #16213e;
+            --success: #00d68f;
+            --warning: #ffaa00;
+            --danger: #e94560;
+        }
+        * { box-sizing: border-box; }
+        body {
+            background: var(--primary);
+            font-family: 'Space Grotesk', sans-serif;
+            color: var(--text);
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            position: fixed;
+            top: 0; left: 0;
+            width: var(--sidebar-w);
+            height: 100vh;
+            background: var(--secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            transition: transform 0.3s;
+        }
+        .sidebar-logo {
+            padding: 24px 20px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .sidebar-logo .icon {
+            width: 40px; height: 40px;
+            background: var(--accent);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; flex-shrink: 0;
+        }
+        .sidebar-logo h2 {
+            font-size: 15px; font-weight: 700;
+            color: #fff; margin: 0;
+            line-height: 1.2;
+        }
+        .sidebar-logo span {
+            font-size: 11px; color: var(--text-muted);
+        }
+        .sidebar-nav {
+            flex: 1;
+            padding: 16px 12px;
+            overflow-y: auto;
+        }
+        .nav-section {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            padding: 12px 8px 6px;
+        }
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.15s;
+            margin-bottom: 2px;
+        }
+        .nav-link i { font-size: 16px; width: 20px; text-align: center; }
+        .nav-link:hover {
+            background: #ffffff10;
+            color: var(--text);
+        }
+        .nav-link.active {
+            background: var(--accent);
+            color: #fff;
+        }
+        .sidebar-footer {
+            padding: 16px 12px;
+            border-top: 1px solid var(--border);
+        }
+        .user-info {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 12px;
+            background: #ffffff08;
+            border-radius: 10px;
+        }
+        .user-avatar {
+            width: 32px; height: 32px;
+            background: var(--accent2);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; color: #fff; flex-shrink: 0;
+        }
+        .user-name { font-size: 13px; font-weight: 600; color: var(--text); }
+        .user-rol { font-size: 11px; color: var(--text-muted); }
+        .btn-cikis {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 12px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 13px;
+            border-radius: 8px;
+            margin-top: 8px;
+            transition: all 0.15s;
+        }
+        .btn-cikis:hover { background: #e9456020; color: var(--accent); }
+
+        /* ── Main ── */
+        .main {
+            margin-left: var(--sidebar-w);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .topbar {
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--secondary);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+        .topbar-title h1 {
+            font-size: 20px; font-weight: 700;
+            color: var(--text); margin: 0;
+        }
+        .topbar-title p {
+            font-size: 12px; color: var(--text-muted); margin: 0;
+        }
+        .topbar-actions { display: flex; align-items: center; gap: 12px; }
+        .content {
+            flex: 1;
+            padding: 28px;
+        }
+
+        /* ── Cards ── */
+        .card-erp {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+        }
+        .kpi-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .kpi-icon {
+            width: 48px; height: 48px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; flex-shrink: 0;
+        }
+        .kpi-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kpi-value { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1.1; }
+        .kpi-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        /* ── Tablo ── */
+        .tablo {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .tablo th {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+        }
+        .tablo td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #ffffff08;
+            font-size: 14px;
+            color: var(--text);
+        }
+        .tablo tbody tr:hover { background: #ffffff05; }
+        .tablo tbody tr:last-child td { border-bottom: none; }
+
+        /* ── Badge ── */
+        .badge-giris { background: #00d68f20; color: var(--success); border-radius: 6px; padding: 3px 10px; font-size: 12px; }
+        .badge-uretim { background: #0f346050; color: #60b4ff; border-radius: 6px; padding: 3px 10px; font-size: 12px; }
+        .badge-satis { background: #e9456020; color: var(--accent); border-radius: 6px; padding: 3px 10px; font-size: 12px; }
+        .badge-zayi { background: #ffaa0020; color: var(--warning); border-radius: 6px; padding: 3px 10px; font-size: 12px; }
+
+        /* ── Form ── */
+        .form-label-erp {
+            font-size: 11px; font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 6px;
+        }
+        .form-control-erp {
+            background: #ffffff08;
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-size: 14px;
+            font-family: 'Space Grotesk', sans-serif;
+            width: 100%;
+            transition: all 0.2s;
+        }
+        .form-control-erp:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: #ffffff10;
+            box-shadow: 0 0 0 3px #e9456020;
+        }
+        .form-control-erp option { background: var(--secondary); }
+
+        /* ── Butonlar ── */
+        .btn-primary-erp {
+            background: var(--accent);
+            color: #fff; border: none;
+            border-radius: 10px; padding: 10px 20px;
+            font-size: 14px; font-weight: 600;
+            font-family: 'Space Grotesk', sans-serif;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-primary-erp:hover { background: #c73652; transform: translateY(-1px); }
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-muted); border: 1px solid var(--border);
+            border-radius: 10px; padding: 8px 16px;
+            font-size: 13px; font-weight: 500;
+            font-family: 'Space Grotesk', sans-serif;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .btn-ghost:hover { background: #ffffff10; color: var(--text); }
+        .btn-danger-erp {
+            background: #e9456020;
+            color: var(--accent); border: 1px solid #e9456040;
+            border-radius: 8px; padding: 6px 14px;
+            font-size: 13px; cursor: pointer; transition: all 0.15s;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .btn-danger-erp:hover { background: var(--accent); color: #fff; }
+
+        /* ── Toast ── */
+        #toast {
+            position: fixed; bottom: 24px; right: 24px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 20px;
+            font-size: 14px;
+            box-shadow: 0 20px 40px #00000060;
+            z-index: 9999;
+            transform: translateY(80px);
+            opacity: 0;
+            transition: all 0.3s;
+        }
+        #toast.show { transform: translateY(0); opacity: 1; }
+        #toast.success { border-color: #00d68f40; color: var(--success); }
+        #toast.error { border-color: #e9456040; color: var(--accent); }
+
+        /* ── Mobile ── */
+        .menu-toggle {
+            display: none;
+            background: none; border: none;
+            color: var(--text); font-size: 22px; cursor: pointer;
+        }
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main { margin-left: 0; }
+            .menu-toggle { display: block; }
+            .content { padding: 16px; }
+            .topbar { padding: 12px 16px; }
+            .sidebar-overlay {
+                display: none;
+                position: fixed; inset: 0;
+                background: #00000080;
+                z-index: 99;
+            }
+            .sidebar-overlay.open { display: block; }
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+
+<!-- Sidebar overlay (mobile) -->
+<div class="sidebar-overlay" id="overlay" onclick="toggleMenu()"></div>
+
+<!-- Sidebar -->
+<aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+        <div class="icon">🥟</div>
+        <div>
+            <h2>Elfiga ERP</h2>
+            <span>Üretim Sistemi</span>
+        </div>
+    </div>
+
+    <nav class="sidebar-nav">
+        <div class="nav-section">Ana Menü</div>
+        <a href="/dashboard" class="nav-link {% if aktif == 'dashboard' %}active{% endif %}">
+            <i class="bi bi-grid-1x2"></i> Dashboard
+        </a>
+        <a href="/patron" class="nav-link {% if aktif == 'patron' %}active{% endif %}">
+            <i class="bi bi-eye"></i> Patron Ekranı
+        </a>
+
+        <div class="nav-section">Üretim</div>
+        <a href="/uretim" class="nav-link {% if aktif == 'uretim' %}active{% endif %}">
+            <i class="bi bi-gear"></i> Üretim
+        </a>
+        <a href="/uretim-hatti" class="nav-link {% if aktif == 'uretim-hatti' %}active{% endif %}">
+            <i class="bi bi-diagram-3"></i> Üretim Hattı
+        </a>
+
+        <div class="nav-section">Stok</div>
+        <a href="/depo" class="nav-link {% if aktif == 'depo' %}active{% endif %}">
+            <i class="bi bi-box-seam"></i> Depom
+        </a>
+        <a href="/stok-giris" class="nav-link {% if aktif == 'stok-giris' %}active{% endif %}">
+            <i class="bi bi-arrow-down-circle"></i> Stok Girişi
+        </a>
+        <a href="/hareketler" class="nav-link {% if aktif == 'hareketler' %}active{% endif %}">
+            <i class="bi bi-clock-history"></i> Hareketler
+        </a>
+
+        <div class="nav-section">Sistem</div>
+        <a href="/sicaklik" class="nav-link {% if aktif == 'sicaklik' %}active{% endif %}">
+            <i class="bi bi-thermometer-half"></i> Sıcaklık
+        </a>
+        <a href="/ayarlar" class="nav-link {% if aktif == 'ayarlar' %}active{% endif %}">
+            <i class="bi bi-sliders"></i> Ayarlar
+        </a>
+    </nav>
+
+    <div class="sidebar-footer">
+        <div class="user-info">
+            <div class="user-avatar">{{ session.username[0].upper() }}</div>
+            <div>
+                <div class="user-name">{{ session.username }}</div>
+                <div class="user-rol">{{ session.rol }}</div>
+            </div>
+        </div>
+        <a href="/cikis" class="btn-cikis">
+            <i class="bi bi-box-arrow-left"></i> Çıkış Yap
+        </a>
+    </div>
+</aside>
+
+<!-- Main -->
+<div class="main">
+    <div class="topbar">
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button class="menu-toggle" onclick="toggleMenu()">
+                <i class="bi bi-list"></i>
+            </button>
+            <div class="topbar-title">
+                <h1>{% block page_title %}Sayfa{% endblock %}</h1>
+                <p>{% block page_sub %}{% endblock %}</p>
+            </div>
+        </div>
+        <div class="topbar-actions">
+            {% block topbar_actions %}{% endblock %}
+        </div>
+    </div>
+
+    <div class="content">
+        {% block content %}{% endblock %}
+    </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+function toggleMenu() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('overlay').classList.toggle('open');
+}
+function showToast(msg, type='success') {
+    const t = document.getElementById('toast');
+    t.textContent = (type === 'success' ? '✅ ' : '❌ ') + msg;
+    t.className = 'show ' + type;
+    setTimeout(() => t.className = '', 3000);
+}
+async function api(method, url, body) {
+    const opts = { method, headers: {'Content-Type':'application/json'} };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(url, opts);
+    return r.json();
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
