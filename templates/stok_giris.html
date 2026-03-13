@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% block title %}Stok Girişi — Elfiga ERP{% endblock %}
+{% block page_title %}Stok Girişi{% endblock %}
+{% block page_sub %}Yeni malzeme girişi ekle{% endblock %}
+
+{% block topbar_actions %}
+<a href="/hareketler" class="btn-ghost" style="text-decoration:none;">📋 Hareketler</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- Form -->
+    <div class="col-lg-5">
+        <div class="card-erp">
+            <h3 style="font-size:16px; font-weight:700; margin-bottom:24px;">➕ Yeni Giriş</h3>
+            
+            <div style="margin-bottom:16px;">
+                <label class="form-label-erp">Malzeme</label>
+                <select id="malzeme_sec" class="form-control-erp" onchange="malzemeSecildi()">
+                    <option value="">— Seçiniz —</option>
+                    {% for m in malzemeler %}
+                    <option value="{{ m }}">{{ m }}</option>
+                    {% endfor %}
+                    <option value="__yeni__">+ Yeni Malzeme Ekle</option>
+                </select>
+            </div>
+
+            <div id="yeni_mlz_div" style="display:none; margin-bottom:16px;">
+                <label class="form-label-erp">Yeni Malzeme Adı</label>
+                <input type="text" id="yeni_mlz" class="form-control-erp" placeholder="Malzeme adını girin">
+            </div>
+
+            <div class="row g-3" style="margin-bottom:16px;">
+                <div class="col-6">
+                    <label class="form-label-erp">Miktar (KG)</label>
+                    <input type="number" id="miktar" class="form-control-erp" placeholder="0.0" min="0.001" step="0.1">
+                </div>
+                <div class="col-6">
+                    <label class="form-label-erp">Fiyat (TL/KG)</label>
+                    <input type="number" id="fiyat" class="form-control-erp" placeholder="0.0" min="0" step="0.1">
+                </div>
+            </div>
+
+            <div class="row g-3" style="margin-bottom:16px;">
+                <div class="col-6">
+                    <label class="form-label-erp">Tarih</label>
+                    <input type="date" id="tarih" class="form-control-erp">
+                </div>
+                <div class="col-6">
+                    <label class="form-label-erp">Parti No</label>
+                    <input type="text" id="parti" class="form-control-erp" placeholder="Otomatik">
+                </div>
+            </div>
+
+            <div style="margin-bottom:24px;">
+                <label class="form-label-erp">Fatura No</label>
+                <input type="text" id="fatura" class="form-control-erp" placeholder="FTR-001">
+            </div>
+
+            <button class="btn-primary-erp" style="width:100%; padding:13px;" onclick="stokKaydet()">
+                💾 Kaydet
+            </button>
+        </div>
+    </div>
+
+    <!-- Son Girişler -->
+    <div class="col-lg-7">
+        <div class="card-erp">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="font-size:16px; font-weight:700; margin:0;">Son Girişler</h3>
+                <span style="font-size:12px; color:var(--text-muted);" id="toplam_kayit"></span>
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <input type="text" id="arama" class="form-control-erp" placeholder="🔍 Malzeme ara..." oninput="aramaYap()">
+            </div>
+
+            <div id="giris_listesi">
+                <div style="text-align:center; padding:32px; color:var(--text-muted);">Yükleniyor...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Düzenle Modal -->
+<div id="modal" style="display:none; position:fixed; inset:0; background:#00000080; z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:460px; margin:16px;">
+        <h3 style="font-size:16px; font-weight:700; margin-bottom:24px;">✏️ Girişi Düzenle</h3>
+        <input type="hidden" id="edit_idx">
+        
+        <div class="row g-3" style="margin-bottom:16px;">
+            <div class="col-6">
+                <label class="form-label-erp">Miktar (KG)</label>
+                <input type="number" id="edit_miktar" class="form-control-erp" step="0.1">
+            </div>
+            <div class="col-6">
+                <label class="form-label-erp">Fiyat (TL/KG)</label>
+                <input type="number" id="edit_fiyat" class="form-control-erp" step="0.1">
+            </div>
+        </div>
+        <div class="row g-3" style="margin-bottom:16px;">
+            <div class="col-6">
+                <label class="form-label-erp">Parti No</label>
+                <input type="text" id="edit_parti" class="form-control-erp">
+            </div>
+            <div class="col-6">
+                <label class="form-label-erp">Fatura No</label>
+                <input type="text" id="edit_fatura" class="form-control-erp">
+            </div>
+        </div>
+
+        <div style="display:flex; gap:12px; margin-top:8px;">
+            <button class="btn-primary-erp" style="flex:1;" onclick="duzenleKaydet()">💾 Güncelle</button>
+            <button class="btn-ghost" onclick="modalKapat()">İptal</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tumHareketler = [];
+
+// Bugünün tarihini set et
+document.getElementById('tarih').value = new Date().toISOString().split('T')[0];
+
+function malzemeSecildi() {
+    const sec = document.getElementById('malzeme_sec').value;
+    document.getElementById('yeni_mlz_div').style.display = sec === '__yeni__' ? 'block' : 'none';
+}
+
+async function stokKaydet() {
+    const sec = document.getElementById('malzeme_sec').value;
+    const malzeme = sec === '__yeni__' 
+        ? document.getElementById('yeni_mlz').value.trim()
+        : sec;
+    const miktar = parseFloat(document.getElementById('miktar').value);
+    const fiyat = parseFloat(document.getElementById('fiyat').value) || 0;
+    const tarihVal = document.getElementById('tarih').value;
+    const tarih = tarihVal ? tarihVal.split('-').reverse().join('.') : '';
+    const parti = document.getElementById('parti').value.trim();
+    const fatura = document.getElementById('fatura').value.trim();
+
+    if (!malzeme) return showToast('Malzeme seçin!', 'error');
+    if (!miktar || miktar <= 0) return showToast('Geçerli miktar girin!', 'error');
+
+    const r = await api('POST', '/api/stok/giris', {malzeme, miktar, fiyat, tarih, parti, fatura});
+    if (r.ok) {
+        showToast(`${malzeme} - ${miktar} KG kaydedildi! Parti: ${r.parti}`);
+        document.getElementById('miktar').value = '';
+        document.getElementById('fatura').value = '';
+        document.getElementById('parti').value = '';
+        hareketleriYukle();
+    } else {
+        showToast('Hata oluştu!', 'error');
+    }
+}
+
+async function hareketleriYukle() {
+    const r = await api('GET', '/api/hareketler');
+    tumHareketler = (Array.isArray(r) ? r : []).filter(h => h.islem === 'Giriş');
+    document.getElementById('toplam_kayit').textContent = tumHareketler.length + ' kayıt';
+    listeyiCiz(tumHareketler);
+}
+
+function aramaYap() {
+    const q = document.getElementById('arama').value.toLowerCase();
+    const filtered = tumHareketler.filter(h => 
+        (h.malzeme||'').toLowerCase().includes(q) ||
+        (h.parti||'').toLowerCase().includes(q) ||
+        (h.fatura||'').toLowerCase().includes(q)
+    );
+    listeyiCiz(filtered);
+}
+
+function listeyiCiz(hareketler) {
+    const el = document.getElementById('giris_listesi');
+    if (!hareketler.length) {
+        el.innerHTML = '<div style="text-align:center; padding:32px; color:var(--text-muted);">Kayıt bulunamadı</div>';
+        return;
+    }
+    el.innerHTML = `
+        <table class="tablo">
+            <thead><tr>
+                <th>Tarih</th>
+                <th>Malzeme</th>
+                <th>Miktar</th>
+                <th>Fatura</th>
+                <th></th>
+            </tr></thead>
+            <tbody>
+                ${hareketler.map((h, i) => `
+                    <tr>
+                        <td style="color:var(--text-muted); font-size:13px;">${h.tarih||'—'}</td>
+                        <td style="font-weight:500;">${h.malzeme||'—'}</td>
+                        <td><span class="badge-giris">${(h.miktar||0).toFixed(1)} KG</span></td>
+                        <td style="color:var(--text-muted); font-size:13px;">${h.fatura||'—'}</td>
+                        <td style="display:flex; gap:6px;">
+                            <button class="btn-ghost" style="padding:4px 10px; font-size:12px;" onclick="modalAc(${tumHareketler.indexOf(h)})">✏️</button>
+                            <button class="btn-danger-erp" style="padding:4px 10px; font-size:12px;" onclick="sil(${tumHareketler.indexOf(h)})">🗑️</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function modalAc(idx) {
+    const h = tumHareketler[idx];
+    document.getElementById('edit_idx').value = idx;
+    document.getElementById('edit_miktar').value = h.miktar || 0;
+    document.getElementById('edit_fiyat').value = h.fiyat || 0;
+    document.getElementById('edit_parti').value = h.parti || '';
+    document.getElementById('edit_fatura').value = h.fatura || '';
+    document.getElementById('modal').style.display = 'flex';
+}
+
+function modalKapat() {
+    document.getElementById('modal').style.display = 'none';
+}
+
+async function duzenleKaydet() {
+    const idx = parseInt(document.getElementById('edit_idx').value);
+    // Global index bul
+    const h = tumHareketler[idx];
+    const r = await api('GET', '/api/hareketler');
+    const globalIdx = (Array.isArray(r) ? r : []).findIndex(x => 
+        x.parti === h.parti && x.malzeme === h.malzeme && x.islem === 'Giriş'
+    );
+    if (globalIdx === -1) return showToast('Kayıt bulunamadı!', 'error');
+
+    const res = await api('PUT', `/api/stok/hareket/${globalIdx}`, {
+        miktar: parseFloat(document.getElementById('edit_miktar').value),
+        fiyat: parseFloat(document.getElementById('edit_fiyat').value),
+        parti: document.getElementById('edit_parti').value,
+        fatura: document.getElementById('edit_fatura').value,
+    });
+    if (res.ok) {
+        showToast('Güncellendi!');
+        modalKapat();
+        hareketleriYukle();
+    } else {
+        showToast('Hata!', 'error');
+    }
+}
+
+async function sil(idx) {
+    if (!confirm('Bu girişi silmek istediğinize emin misiniz?\nStok miktarı da geri alınacak.')) return;
+    const h = tumHareketler[idx];
+    const r = await api('GET', '/api/hareketler');
+    const globalIdx = (Array.isArray(r) ? r : []).findIndex(x => 
+        x.parti === h.parti && x.malzeme === h.malzeme && x.islem === 'Giriş'
+    );
+    if (globalIdx === -1) return showToast('Kayıt bulunamadı!', 'error');
+    const res = await api('DELETE', `/api/stok/hareket/${globalIdx}`);
+    if (res.ok) {
+        showToast('Silindi!');
+        hareketleriYukle();
+    } else {
+        showToast('Hata!', 'error');
+    }
+}
+
+hareketleriYukle();
+</script>
+{% endblock %}

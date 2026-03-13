@@ -320,6 +320,28 @@ async def hareket_duzenle(index: int, request: Request):
     tenant_veri_kaydet(s["tenant_id"], v)
     return JSONResponse({"ok": True})
 
+@app.get("/stok-giris", response_class=HTMLResponse)
+async def stok_giris_sayfasi(request: Request):
+    s = session_al(request)
+    if not s:
+        return RedirectResponse("/giris")
+    
+    conn = db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM tenant_veriler WHERE tenant_id=%s AND key='veriler'", (s["tenant_id"],))
+    row = cur.fetchone()
+    conn.close()
+    
+    v = row["value"] if row else {}
+    malzemeler = sorted(v.get("stoklar", {}).keys())
+    
+    return templates.TemplateResponse("stok_giris.html", {
+        "request": request,
+        "session": s,
+        "aktif": "stok-giris",
+        "malzemeler": malzemeler,
+    })
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
