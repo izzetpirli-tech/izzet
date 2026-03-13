@@ -1000,9 +1000,78 @@ def depo_giris_sayfasi(v):
                 "İşlem": h.get("islem"),
                 "Sevkiyat": "✅" if h.get("sevkiyat_detay") else ""
             } for h in hareketler])
-            
+
+            # Düzenle / Sil paneli
+            st.markdown("---")
+            duz_sec = st.selectbox("✏️ Kayıt Seç (Düzenle / Sil)", ["— Seçiniz —"] + [
+                f"{h.get('parti','?')} | {h.get('malzeme','?')} | {h.get('miktar',0)} KG | {h.get('tarih','')} | {h.get('islem','')}"
+                for h in hareketler
+            ], key="duz_sec_h")
+
+            if duz_sec != "— Seçiniz —":
+                secilen_idx = [
+                    f"{h.get('parti','?')} | {h.get('malzeme','?')} | {h.get('miktar',0)} KG | {h.get('tarih','')} | {h.get('islem','')}"
+                    for h in hareketler
+                ].index(duz_sec)
+                secilen_h = hareketler[secilen_idx]
+                global_idx = v["hareketler"].index(secilen_h)
+
+                col_duz, col_sil = st.columns([3, 1])
+
+                with col_duz:
+                    with st.expander("✏️ Düzenle", expanded=True):
+                        with st.form("hareket_duzenle_form"):
+                            col_d1, col_d2 = st.columns(2)
+                            with col_d1:
+                                yeni_miktar = st.number_input("Miktar (KG)", value=float(secilen_h.get("miktar", 0)), step=0.1)
+                                yeni_fiyat = st.number_input("Fiyat (TL/KG)", value=float(secilen_h.get("fiyat", 0)), step=0.1)
+                            with col_d2:
+                                yeni_fatura = st.text_input("Fatura No", value=secilen_h.get("fatura", ""))
+                                yeni_parti = st.text_input("Parti No", value=secilen_h.get("parti", ""))
+                            kaydet_btn = st.form_submit_button("💾 Güncelle", type="primary", use_container_width=True)
+                            if kaydet_btn:
+                                eski_miktar = secilen_h.get("miktar", 0)
+                                fark = yeni_miktar - eski_miktar
+                                malzeme = secilen_h.get("malzeme")
+                                islem = secilen_h.get("islem")
+                                # Stok güncelle
+                                if islem == "Giriş" and malzeme in v["stoklar"]:
+                                    v["stoklar"][malzeme] = max(0, v["stoklar"].get(malzeme, 0) + fark)
+                                    # detayli_stok güncelle
+                                    for d in v["detayli_stok"]:
+                                        if d.get("parti") == secilen_h.get("parti") and d.get("malzeme") == malzeme:
+                                            d["miktar"] = yeni_miktar
+                                            d["kalan"] = max(0, d["kalan"] + fark)
+                                v["hareketler"][global_idx]["miktar"] = yeni_miktar
+                                v["hareketler"][global_idx]["fiyat"] = yeni_fiyat
+                                v["hareketler"][global_idx]["fatura"] = yeni_fatura
+                                v["hareketler"][global_idx]["parti"] = yeni_parti
+                                veriler_kaydet(v)
+                                st.success("✅ Kayıt güncellendi!")
+                                st.rerun()
+
+                with col_sil:
+                    st.markdown("#### 🗑️ Sil")
+                    st.warning(f"**{secilen_h.get('malzeme')}**\n{secilen_h.get('miktar')} KG\n{secilen_h.get('tarih')}")
+                    if st.button("🗑️ Kaydı Sil", type="primary", use_container_width=True, key="sil_btn_h"):
+                        islem = secilen_h.get("islem")
+                        malzeme = secilen_h.get("malzeme")
+                        miktar = secilen_h.get("miktar", 0)
+                        # Stoku geri al
+                        if islem == "Giriş" and malzeme in v["stoklar"]:
+                            v["stoklar"][malzeme] = max(0, v["stoklar"].get(malzeme, 0) - miktar)
+                            v["detayli_stok"] = [
+                                d for d in v["detayli_stok"]
+                                if not (d.get("parti") == secilen_h.get("parti") and d.get("malzeme") == malzeme)
+                            ]
+                        v["hareketler"].pop(global_idx)
+                        veriler_kaydet(v)
+                        st.success("✅ Kayıt silindi!")
+                        st.rerun()
+
+            st.markdown("---")
             st.dataframe(df_h, use_container_width=True, hide_index=True)
-            
+
             # Excel raporu
             if st.button("📊 Excel'e Aktar"):
                 output = io.BytesIO()
