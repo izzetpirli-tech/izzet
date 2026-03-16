@@ -221,7 +221,9 @@ def gecmis_olcumler(tenant_id, sensor_id):
         "zaman": r["kayit_zamani"].isoformat()
     } for r in rows])
 
+# Tablo oluştur - her zaman
+init_sicaklik_db()
+
 if __name__ == "__main__":
-    init_sicaklik_db()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
