@@ -597,7 +597,7 @@ async def api_etiket_listele(request: Request):
     return JSONResponse(rows)
 
 @app.get("/etiket/yazdir/{urun_adi}")
-async def etiket_yazdir(urun_adi: str, request: Request, parti: str = "", tarih: str = ""):
+async def etiket_yazdir(urun_adi: str, request: Request, parti: str = "", tarih: str = "", gramaj: str = "5 KG"):
     s = session_al(request)
     if not s: return RedirectResponse("/giris")
     from urllib.parse import unquote
@@ -628,6 +628,15 @@ async def etiket_yazdir(urun_adi: str, request: Request, parti: str = "", tarih:
     html = row["etiket_html"]
     html = html.replace("15.09.2026", skt)
     html = html.replace("URT-260316-0611", parti)
+    # Gramaj değiştir
+    import re as _re2
+    html = _re2.sub(r'<div class="kgsayi"[^>]*>\d+</div>\s*<div class="kgbirim"[^>]*>\w+</div>', lambda m: m.group(0), html)
+    m2 = _re.match(r"([0-9,.]+)\s*(.*)", gramaj.strip())
+    if m2:
+        sayi = m2.group(1)
+        birim = m2.group(2).strip() or "KG"
+        html = _re.sub(r'(<div class="kgsayi"[^>]*>)[^<]*(</div>)', f'\\g<1>{sayi}\\g<2>', html)
+        html = _re.sub(r'(<div class="kgbirim"[^>]*>)[^<]*(</div>)', f'\\g<1>{birim}\\g<2>', html)
     
     return HTMLResponse(html)
 
