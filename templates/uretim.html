@@ -1,18 +1,62 @@
 {% extends "base.html" %}
 {% block title %}Üretim — Elfiga ERP{% endblock %}
 {% block page_title %}Üretim{% endblock %}
-{% block page_sub %}Manti üretimi başlat{% endblock %}
+{% block page_sub %}Üretim yönetimi{% endblock %}
+
+{% block head %}
+<style>
+@media print {
+    body * { visibility: hidden !important; }
+    #etiket_yazdir, #etiket_yazdir * { visibility: visible !important; }
+    #etiket_yazdir {
+        position: fixed !important;
+        left: 0 !important; top: 0 !important;
+        width: 100mm !important; height: 80mm !important;
+        margin: 0 !important; padding: 0 !important;
+    }
+    @page { size: 100mm 80mm; margin: 0; }
+}
+#etiket_yazdir {
+    display: none;
+    width: 100mm; height: 80mm;
+    background: #fff; color: #000;
+    font-family: Arial, sans-serif;
+    padding: 6mm; box-sizing: border-box;
+}
+.etiket-firma { font-size: 16pt; font-weight: 900; text-align: center; border-bottom: 2px solid #000; padding-bottom: 3mm; margin-bottom: 3mm; }
+.etiket-urun { font-size: 14pt; font-weight: 700; text-align: center; margin-bottom: 3mm; }
+.etiket-row { display: flex; justify-content: space-between; font-size: 9pt; margin-bottom: 1.5mm; }
+.etiket-row span:first-child { color: #555; }
+.etiket-row span:last-child { font-weight: 600; }
+.etiket-barcode { text-align: center; font-size: 8pt; margin-top: 3mm; padding-top: 3mm; border-top: 1px solid #ccc; letter-spacing: 3px; font-family: monospace; }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn-ghost" onclick="receteDuzenleModal()">📋 Reçete Düzenle</button>
+{% endblock %}
 
 {% block content %}
+
+<div id="etiket_yazdir">
+    <div class="etiket-firma">ELFİGA MANTI</div>
+    <div class="etiket-urun" id="e_urun"></div>
+    <div class="etiket-row"><span>Parti No:</span><span id="e_parti"></span></div>
+    <div class="etiket-row"><span>Üretim Tarihi:</span><span id="e_tarih"></span></div>
+    <div class="etiket-row"><span>Miktar:</span><span id="e_miktar"></span></div>
+    <div class="etiket-row"><span>SKT:</span><span id="e_skt"></span></div>
+    <div class="etiket-row"><span>Operatör:</span><span id="e_operator"></span></div>
+    <div class="etiket-barcode" id="e_barkod"></div>
+</div>
+
 <div class="row g-4">
-    <!-- Üretim Formu -->
     <div class="col-lg-5">
         <div class="card-erp mb-4">
-            <h3 style="font-size:16px; font-weight:700; margin-bottom:24px;">🏭 Üretim Başlat</h3>
+            <h3 style="font-size:16px; font-weight:700; margin-bottom:20px;">🏭 Üretim Başlat</h3>
 
             <div style="margin-bottom:16px;">
                 <label class="form-label-erp">Reçete</label>
-                <select id="recete_sec" class="form-control-erp" onchange="receteYukle()">
+                <select id="recete_sec" class="form-control-erp" onchange="receteSecildi()">
                     <option value="">— Seçiniz —</option>
                     {% for r in receteler %}
                     <option value="{{ r }}">{{ r }}</option>
@@ -20,32 +64,43 @@
                 </select>
             </div>
 
+            <div id="kapasite_div" style="display:none; margin-bottom:16px;">
+                <div style="background:#00d68f15; border:1px solid #00d68f30; border-radius:10px; padding:14px;">
+                    <div style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:6px;">Maksimum Üretim Kapasitesi</div>
+                    <div style="font-size:28px; font-weight:700; color:#00d68f;" id="max_kapasite">— KG</div>
+                    <div style="font-size:12px; color:var(--text-muted); margin-top:4px;" id="kapasite_sinir"></div>
+                </div>
+            </div>
+
             <div style="margin-bottom:16px;">
                 <label class="form-label-erp">Üretim Miktarı (KG)</label>
-                <input type="number" id="uretim_kg" class="form-control-erp" placeholder="0" min="1" step="1" oninput="kontrolEt()">
+                <input type="number" id="uretim_kg" class="form-control-erp" placeholder="0" min="1" step="1" oninput="stokKontrol()">
             </div>
 
-            <div style="margin-bottom:24px;">
-                <label class="form-label-erp">Tarih</label>
-                <input type="date" id="uretim_tarih" class="form-control-erp">
+            <div class="row g-3 mb-4">
+                <div class="col-6">
+                    <label class="form-label-erp">Tarih</label>
+                    <input type="date" id="uretim_tarih" class="form-control-erp">
+                </div>
+                <div class="col-6">
+                    <label class="form-label-erp">SKT</label>
+                    <input type="date" id="uretim_skt" class="form-control-erp">
+                </div>
             </div>
 
-            <!-- Stok kontrol sonucu -->
-            <div id="kontrol_sonuc" style="display:none; margin-bottom:20px;"></div>
+            <div id="kontrol_div" style="display:none; margin-bottom:16px;"></div>
 
             <button class="btn-primary-erp" style="width:100%; padding:13px;" onclick="uretimBaslat()" id="uretim_btn" disabled>
                 🏭 Üretimi Başlat
             </button>
         </div>
 
-        <!-- Reçete Detayı -->
-        <div class="card-erp" id="recete_detay" style="display:none;">
-            <h3 style="font-size:15px; font-weight:700; margin-bottom:16px;">📋 Reçete İçeriği</h3>
+        <div class="card-erp" id="recete_kart" style="display:none;">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:16px;">📋 Reçete: <span id="recete_adi_goster"></span></h3>
             <div id="recete_icerik"></div>
         </div>
     </div>
 
-    <!-- Son Üretimler -->
     <div class="col-lg-7">
         <div class="card-erp">
             <h3 style="font-size:16px; font-weight:700; margin-bottom:20px;">📦 Son Üretimler</h3>
@@ -55,104 +110,144 @@
         </div>
     </div>
 </div>
+
+<!-- Reçete Modal -->
+<div id="recete_modal" style="display:none; position:fixed; inset:0; background:#00000090; z-index:1000; align-items:flex-start; justify-content:center; overflow-y:auto; padding:20px;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:600px; margin:auto;">
+        <h3 style="font-size:16px; font-weight:700; margin-bottom:20px;">📋 Reçete Düzenle</h3>
+        <div class="row g-3 mb-4">
+            <div class="col-8">
+                <label class="form-label-erp">Reçete Adı</label>
+                <input type="text" id="r_adi" class="form-control-erp" placeholder="Tekil Reçete">
+            </div>
+            <div class="col-4" style="display:flex; align-items:flex-end;">
+                <button class="btn-primary-erp" style="width:100%;" onclick="receteYukleModal()">Yükle</button>
+            </div>
+        </div>
+        <div style="margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+            <label class="form-label-erp" style="margin:0;">Malzeme Oranları (1 KG ürün için)</label>
+            <button class="btn-ghost" style="padding:4px 12px; font-size:12px;" onclick="satirEkle()">+ Satır Ekle</button>
+        </div>
+        <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse;">
+                <thead>
+                    <tr>
+                        <th style="font-size:11px; color:var(--text-muted); padding:8px 12px; text-align:left; border-bottom:1px solid var(--border);">Malzeme</th>
+                        <th style="font-size:11px; color:var(--text-muted); padding:8px 12px; text-align:left; border-bottom:1px solid var(--border);">KG / 1 KG ürün</th>
+                        <th style="width:40px; border-bottom:1px solid var(--border);"></th>
+                    </tr>
+                </thead>
+                <tbody id="recete_satirlar"></tbody>
+            </table>
+        </div>
+        <div style="background:#ffffff08; border-radius:8px; padding:10px 14px; font-size:12px; color:var(--text-muted); margin-top:12px;">
+            💡 Örnek: 1 KG manti için 0.45 KG un, 0.30 KG et, 0.10 KG soğan
+        </div>
+        <div style="display:flex; gap:12px; margin-top:20px;">
+            <button class="btn-primary-erp" style="flex:1;" onclick="receteKaydet()">💾 Kaydet</button>
+            <button class="btn-ghost" onclick="document.getElementById('recete_modal').style.display='none'">İptal</button>
+        </div>
+    </div>
+</div>
+
+<!-- Etiket Modal -->
+<div id="etiket_modal" style="display:none; position:fixed; inset:0; background:#00000090; z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:440px; margin:16px;">
+        <h3 style="font-size:16px; font-weight:700; margin-bottom:20px;">🖨️ Etiket Yazdır</h3>
+        <div style="background:#fff; color:#000; font-family:Arial,sans-serif; padding:16px; border-radius:10px; margin-bottom:20px; box-shadow:0 4px 20px #00000040;">
+            <div style="font-size:14pt; font-weight:900; text-align:center; border-bottom:2px solid #000; padding-bottom:6px; margin-bottom:6px;" id="prev_firma">ELFİGA MANTI</div>
+            <div style="font-size:12pt; font-weight:700; text-align:center; margin-bottom:6px;" id="prev_urun"></div>
+            <div style="display:flex; justify-content:space-between; font-size:9pt; margin-bottom:3px;"><span style="color:#555;">Parti No:</span><span id="prev_parti" style="font-weight:600;"></span></div>
+            <div style="display:flex; justify-content:space-between; font-size:9pt; margin-bottom:3px;"><span style="color:#555;">Üretim Tarihi:</span><span id="prev_tarih" style="font-weight:600;"></span></div>
+            <div style="display:flex; justify-content:space-between; font-size:9pt; margin-bottom:3px;"><span style="color:#555;">Miktar:</span><span id="prev_miktar" style="font-weight:600;"></span></div>
+            <div style="display:flex; justify-content:space-between; font-size:9pt; margin-bottom:3px;"><span style="color:#555;">SKT:</span><span id="prev_skt" style="font-weight:600;"></span></div>
+            <div style="text-align:center; font-size:8pt; margin-top:6px; padding-top:6px; border-top:1px solid #ccc; letter-spacing:3px; font-family:monospace;" id="prev_barkod"></div>
+        </div>
+        <div style="display:flex; gap:12px;">
+            <button class="btn-primary-erp" style="flex:1;" onclick="etiketi_yazdir()">🖨️ Yazdır</button>
+            <button class="btn-ghost" onclick="document.getElementById('etiket_modal').style.display='none'">Kapat</button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-let receteler = {};
 let stoklar = {};
+let receteler = {};
+let sonUretim = null;
+const operator = "{{ session.username }}";
 
-document.getElementById('uretim_tarih').value = new Date().toISOString().split('T')[0];
+const bugun = new Date().toISOString().split('T')[0];
+document.getElementById('uretim_tarih').value = bugun;
+const skt = new Date(); skt.setDate(skt.getDate() + 180);
+document.getElementById('uretim_skt').value = skt.toISOString().split('T')[0];
 
 async function yukle() {
-    const [r, s] = await Promise.all([
-        api('GET', '/api/receteler'),
-        api('GET', '/api/stoklar')
-    ]);
-    receteler = r || {};
+    const [s, r, h] = await Promise.all([api('GET','/api/stoklar'), api('GET','/api/receteler'), api('GET','/api/hareketler')]);
     stoklar = s || {};
-    uretimListesiYukle();
+    receteler = r || {};
+    uretimListesiGoster((Array.isArray(h)?h:[]).filter(x=>x.islem==='Üretim'));
 }
 
-function receteYukle() {
+function receteSecildi() {
     const sec = document.getElementById('recete_sec').value;
-    const detayDiv = document.getElementById('recete_detay');
-    const icerikDiv = document.getElementById('recete_icerik');
-
     if (!sec || !receteler[sec]) {
-        detayDiv.style.display = 'none';
+        document.getElementById('kapasite_div').style.display='none';
+        document.getElementById('recete_kart').style.display='none';
         return;
     }
-
-    const oranlar = receteler[sec].oranlar || {};
-    const items = Object.entries(oranlar).filter(([,v]) => v > 0);
-
-    if (!items.length) {
-        detayDiv.style.display = 'none';
-        return;
-    }
-
-    icerikDiv.innerHTML = `
-        <table class="tablo">
-            <thead><tr><th>Malzeme</th><th>1 KG için</th><th>Stok</th></tr></thead>
-            <tbody>
-                ${items.map(([m, oran]) => `
-                    <tr>
-                        <td>${m}</td>
-                        <td>${oran.toFixed(3)} KG</td>
-                        <td style="color:${(stoklar[m]||0) > 10 ? 'var(--success)' : 'var(--danger)'};">
-                            ${(stoklar[m]||0).toFixed(1)} KG
-                        </td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-    detayDiv.style.display = 'block';
-    kontrolEt();
+    document.getElementById('recete_adi_goster').textContent = sec;
+    kapasiteHesapla(sec);
+    receteIcerikGoster(sec);
+    stokKontrol();
 }
 
-function kontrolEt() {
-    const sec = document.getElementById('recete_sec').value;
-    const kg = parseFloat(document.getElementById('uretim_kg').value) || 0;
-    const sonucDiv = document.getElementById('kontrol_sonuc');
-    const btn = document.getElementById('uretim_btn');
-
-    if (!sec || kg <= 0) {
-        sonucDiv.style.display = 'none';
-        btn.disabled = true;
-        return;
-    }
-
-    const oranlar = (receteler[sec] || {}).oranlar || {};
-    const yetersiz = [];
-
-    Object.entries(oranlar).forEach(([m, oran]) => {
-        if (oran <= 0) return;
-        const lazim = kg * oran;
-        const mevcut = stoklar[m] || 0;
-        if (mevcut < lazim - 0.001) {
-            yetersiz.push(`${m}: lazım ${lazim.toFixed(2)} KG, mevcut ${mevcut.toFixed(2)} KG`);
-        }
+function kapasiteHesapla(adi) {
+    const oranlar = (receteler[adi]||{}).oranlar||{};
+    const items = Object.entries(oranlar).filter(([,v])=>v>0);
+    if (!items.length) return;
+    let maxKg = Infinity, sinir = '';
+    items.forEach(([m,oran]) => {
+        const k = (stoklar[m]||0)/oran;
+        if (k < maxKg) { maxKg=k; sinir=m; }
     });
+    document.getElementById('kapasite_div').style.display='block';
+    document.getElementById('max_kapasite').textContent = isFinite(maxKg) ? Math.floor(maxKg)+' KG' : '∞ KG';
+    document.getElementById('kapasite_sinir').textContent = sinir ? `Sınırlayan: ${sinir} (${(stoklar[sinir]||0).toFixed(1)} KG mevcut)` : '';
+}
 
+function receteIcerikGoster(adi) {
+    const oranlar = (receteler[adi]||{}).oranlar||{};
+    const kg = parseFloat(document.getElementById('uretim_kg').value)||1;
+    const items = Object.entries(oranlar).filter(([,v])=>v>0);
+    document.getElementById('recete_kart').style.display = items.length ? 'block' : 'none';
+    document.getElementById('recete_icerik').innerHTML = `
+        <table class="tablo"><thead><tr><th>Malzeme</th><th>Oran</th><th>${kg} KG için</th><th>Stok</th></tr></thead><tbody>
+        ${items.map(([m,oran])=>{
+            const lazim=kg*oran, mevcut=stoklar[m]||0, ok=mevcut>=lazim-0.001;
+            return `<tr><td>${m}</td><td style="color:var(--text-muted);">${oran.toFixed(3)}</td><td style="font-weight:600;">${lazim.toFixed(2)} KG</td><td style="color:${ok?'var(--success)':'var(--danger)'}; font-weight:600;">${mevcut.toFixed(1)} KG ${ok?'✓':'✗'}</td></tr>`;
+        }).join('')}
+        </tbody></table>`;
+}
+
+function stokKontrol() {
+    const sec = document.getElementById('recete_sec').value;
+    const kg = parseFloat(document.getElementById('uretim_kg').value)||0;
+    const kontrol = document.getElementById('kontrol_div');
+    const btn = document.getElementById('uretim_btn');
+    if (sec) receteIcerikGoster(sec);
+    if (!sec||kg<=0) { kontrol.style.display='none'; btn.disabled=true; return; }
+    const oranlar = (receteler[sec]||{}).oranlar||{};
+    const yetersiz = Object.entries(oranlar).filter(([,v])=>v>0).filter(([m,oran])=>(stoklar[m]||0)<kg*oran-0.001).map(([m,oran])=>`${m}: lazım ${(kg*oran).toFixed(2)} KG, mevcut ${(stoklar[m]||0).toFixed(2)} KG`);
+    kontrol.style.display='block';
     if (yetersiz.length) {
-        sonucDiv.style.display = 'block';
-        sonucDiv.innerHTML = `
-            <div style="background:#e9456015; border:1px solid #e9456040; border-radius:10px; padding:14px;">
-                <div style="color:var(--accent); font-weight:600; margin-bottom:8px;">❌ Yetersiz Stok</div>
-                ${yetersiz.map(y => `<div style="font-size:13px; color:var(--text-muted); margin-top:4px;">• ${y}</div>`).join('')}
-            </div>
-        `;
-        btn.disabled = true;
+        kontrol.innerHTML=`<div style="background:#e9456015;border:1px solid #e9456040;border-radius:10px;padding:14px;"><div style="color:var(--accent);font-weight:600;margin-bottom:8px;">❌ Yetersiz Stok</div>${yetersiz.map(y=>`<div style="font-size:13px;color:var(--text-muted);margin-top:4px;">• ${y}</div>`).join('')}</div>`;
+        btn.disabled=true;
     } else {
-        sonucDiv.style.display = 'block';
-        sonucDiv.innerHTML = `
-            <div style="background:#00d68f15; border:1px solid #00d68f40; border-radius:10px; padding:14px;">
-                <div style="color:var(--success); font-weight:600;">✅ Stok Yeterli — Üretim Başlayabilir</div>
-            </div>
-        `;
-        btn.disabled = false;
+        kontrol.innerHTML=`<div style="background:#00d68f15;border:1px solid #00d68f40;border-radius:10px;padding:12px;"><div style="color:var(--success);font-weight:600;">✅ Stok Yeterli</div></div>`;
+        btn.disabled=false;
     }
 }
 
@@ -160,55 +255,104 @@ async function uretimBaslat() {
     const sec = document.getElementById('recete_sec').value;
     const kg = parseFloat(document.getElementById('uretim_kg').value);
     const tarihVal = document.getElementById('uretim_tarih').value;
-    const tarih = tarihVal ? tarihVal.split('-').reverse().join('.') : '';
-
-    if (!sec || !kg) return showToast('Reçete ve miktar zorunlu!', 'error');
-
-    const r = await api('POST', '/api/uretim', { recete: sec, miktar: kg, tarih });
+    const sktVal = document.getElementById('uretim_skt').value;
+    const tarih = tarihVal?tarihVal.split('-').reverse().join('.'):'';
+    const skt = sktVal?sktVal.split('-').reverse().join('.'):'';
+    if (!sec||!kg) return showToast('Reçete ve miktar zorunlu!','error');
+    const r = await api('POST','/api/uretim',{recete:sec,miktar:kg,tarih,skt});
     if (r.ok) {
         showToast(`✅ ${kg} KG üretim tamamlandı! Parti: ${r.parti}`);
-        document.getElementById('uretim_kg').value = '';
-        document.getElementById('kontrol_sonuc').style.display = 'none';
-        document.getElementById('uretim_btn').disabled = true;
-        const [s] = await Promise.all([api('GET', '/api/stoklar')]);
-        stoklar = s || {};
-        kontrolEt();
-        uretimListesiYukle();
-    } else {
-        showToast(r.error || 'Hata!', 'error');
-    }
+        sonUretim = {urun:sec, parti:r.parti, tarih, miktar:kg+' KG', skt};
+        document.getElementById('uretim_kg').value='';
+        document.getElementById('kontrol_div').style.display='none';
+        document.getElementById('uretim_btn').disabled=true;
+        stoklar = await api('GET','/api/stoklar');
+        kapasiteHesapla(sec);
+        etiketOnizle(sonUretim);
+        yukle();
+    } else { showToast(r.error||'Hata!','error'); }
 }
 
-async function uretimListesiYukle() {
-    const r = await api('GET', '/api/hareketler');
-    const hareketler = (Array.isArray(r) ? r : []).filter(h => h.islem === 'Üretim');
+function etiketOnizle(u) {
+    document.getElementById('prev_urun').textContent=u.urun;
+    document.getElementById('prev_parti').textContent=u.parti;
+    document.getElementById('prev_tarih').textContent=u.tarih;
+    document.getElementById('prev_miktar').textContent=u.miktar;
+    document.getElementById('prev_skt').textContent=u.skt||'—';
+    document.getElementById('prev_barkod').textContent=u.parti;
+    document.getElementById('etiket_modal').style.display='flex';
+}
+
+function etiketi_yazdir() {
+    if (!sonUretim) return;
+    document.getElementById('e_urun').textContent=sonUretim.urun;
+    document.getElementById('e_parti').textContent=sonUretim.parti;
+    document.getElementById('e_tarih').textContent=sonUretim.tarih;
+    document.getElementById('e_miktar').textContent=sonUretim.miktar;
+    document.getElementById('e_skt').textContent=sonUretim.skt||'—';
+    document.getElementById('e_operator').textContent=operator;
+    document.getElementById('e_barkod').textContent=sonUretim.parti;
+    document.getElementById('etiket_yazdir').style.display='block';
+    window.print();
+    setTimeout(()=>{ document.getElementById('etiket_yazdir').style.display='none'; },1000);
+}
+
+function uretimListesiGoster(hareketler) {
     const el = document.getElementById('uretim_listesi');
+    if (!hareketler.length) { el.innerHTML='<div style="text-align:center;padding:40px;color:var(--text-muted);">Henüz üretim yok</div>'; return; }
+    el.innerHTML=`<table class="tablo"><thead><tr><th>Tarih</th><th>Ürün</th><th>Miktar</th><th>Parti</th><th></th></tr></thead><tbody>
+        ${hareketler.slice(0,20).map(h=>`<tr>
+            <td style="color:var(--text-muted);font-size:13px;">${h.tarih||'—'}</td>
+            <td style="font-weight:500;">${h.malzeme||'—'}</td>
+            <td><span class="badge-uretim">${(h.miktar||0).toFixed(1)} KG</span></td>
+            <td style="font-size:12px;color:var(--text-muted);">${h.parti||'—'}</td>
+            <td><button class="btn-ghost" style="padding:4px 10px;font-size:12px;" onclick='sonUretim={urun:"${h.malzeme}",parti:"${h.parti}",tarih:"${h.tarih}",miktar:"${h.miktar} KG",skt:""}; etiketOnizle(sonUretim)'>🖨️</button></td>
+        </tr>`).join('')}
+    </tbody></table>`;
+}
 
-    if (!hareketler.length) {
-        el.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);">Henüz üretim yok</div>';
-        return;
-    }
+// Reçete Modal
+function receteDuzenleModal() {
+    document.getElementById('recete_satirlar').innerHTML='';
+    document.getElementById('r_adi').value='';
+    for(let i=0;i<6;i++) satirEkle();
+    document.getElementById('recete_modal').style.display='flex';
+}
 
-    el.innerHTML = `
-        <table class="tablo">
-            <thead><tr>
-                <th>Tarih</th>
-                <th>Ürün</th>
-                <th>Miktar</th>
-                <th>Parti</th>
-            </tr></thead>
-            <tbody>
-                ${hareketler.slice(0, 20).map(h => `
-                    <tr>
-                        <td style="color:var(--text-muted); font-size:13px;">${h.tarih||'—'}</td>
-                        <td style="font-weight:500;">${h.malzeme||'—'}</td>
-                        <td><span class="badge-uretim">${(h.miktar||0).toFixed(1)} KG</span></td>
-                        <td style="font-size:12px; color:var(--text-muted);">${h.parti||'—'}</td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
+function receteYukleModal() {
+    const adi = document.getElementById('r_adi').value.trim();
+    if (!adi||!receteler[adi]) return showToast('Reçete bulunamadı!','error');
+    document.getElementById('recete_satirlar').innerHTML='';
+    Object.entries((receteler[adi].oranlar||{})).filter(([,v])=>v>0).forEach(([m,v])=>satirEkle(m,v));
+    for(let i=0;i<3;i++) satirEkle();
+    showToast('Reçete yüklendi!');
+}
+
+function satirEkle(malzeme='',oran='') {
+    const tbody=document.getElementById('recete_satirlar');
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td style="padding:4px 6px;"><input type="text" class="form-control-erp r_mlz" placeholder="Malzeme adı" value="${malzeme}" style="padding:8px 10px;"></td><td style="padding:4px 6px;"><input type="number" class="form-control-erp r_oran" placeholder="0.000" value="${oran}" step="0.001" min="0" style="padding:8px 10px;"></td><td style="padding:4px;"><button onclick="this.closest('tr').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;padding:4px;">×</button></td>`;
+    tbody.appendChild(tr);
+}
+
+async function receteKaydet() {
+    const adi = document.getElementById('r_adi').value.trim();
+    if (!adi) return showToast('Reçete adı zorunlu!','error');
+    const oranlar={};
+    document.querySelectorAll('#recete_satirlar tr').forEach(tr=>{
+        const m=tr.querySelector('.r_mlz').value.trim();
+        const o=parseFloat(tr.querySelector('.r_oran').value);
+        if(m&&o>0) oranlar[m]=o;
+    });
+    if (!Object.keys(oranlar).length) return showToast('En az bir malzeme girin!','error');
+    const r=await api('POST','/api/recete-kaydet',{adi,oranlar});
+    if(r.ok){
+        showToast(`✅ "${adi}" reçetesi kaydedildi!`);
+        document.getElementById('recete_modal').style.display='none';
+        receteler=await api('GET','/api/receteler');
+        const sel=document.getElementById('recete_sec');
+        sel.innerHTML='<option value="">— Seçiniz —</option>'+Object.keys(receteler).map(r=>`<option value="${r}">${r}</option>`).join('');
+    } else { showToast('Hata!','error'); }
 }
 
 yukle();

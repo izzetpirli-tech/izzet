@@ -305,7 +305,7 @@ async def api_uretim(request: Request):
         if oran > 0:
             v["stoklar"][m] = max(0, v["stoklar"].get(m, 0) - kg * oran)
     v["hazir_manti_stok"] = v.get("hazir_manti_stok", 0) + kg
-    v.setdefault("hareketler", []).insert(0, {"tarih": tarih, "malzeme": recete_adi, "miktar": kg, "fiyat": 0, "parti": parti, "fatura": "-", "islem": "Üretim"})
+    v.setdefault("hareketler", []).insert(0, {"tarih": tarih, "malzeme": recete_adi, "miktar": kg, "fiyat": 0, "parti": parti, "fatura": "-", "islem": "Üretim", "skt": data.get("skt", "")})
     veri_kaydet(s["tenant_id"], v)
     return JSONResponse({"ok": True, "parti": parti})
 
@@ -497,4 +497,51 @@ async def api_makine_sil(mid: int, request: Request):
     cur.execute("DELETE FROM uretim_makineleri WHERE id=%s AND tenant_id=%s", (mid, s["tenant_id"]))
     conn.commit()
     conn.close()
+    return JSONResponse({"ok": True})
+
+# ══════════════════════════════════════════
+#  API — REÇETE
+# ══════════════════════════════════════════
+@app.post("/api/recete")
+async def api_recete_kaydet(request: Request):
+    s = session_al(request)
+    if not s: return JSONResponse({"error": "Yetkisiz"}, status_code=401)
+    data = await request.json()
+    v = veri_al(s["tenant_id"])
+    adi = data.get("adi", "").strip()
+    if not adi: return JSONResponse({"error": "Reçete adı boş"}, status_code=400)
+    v.setdefault("coklu_receteler", {})[adi] = {
+        "oranlar": data.get("oranlar", {}),
+        "aciklama": data.get("aciklama", "")
+    }
+    veri_kaydet(s["tenant_id"], v)
+    return JSONResponse({"ok": True})
+
+@app.delete("/api/recete/{adi}")
+async def api_recete_sil(adi: str, request: Request):
+    s = session_al(request)
+    if not s: return JSONResponse({"error": "Yetkisiz"}, status_code=401)
+    from urllib.parse import unquote
+    adi = unquote(adi)
+    v = veri_al(s["tenant_id"])
+    v.get("coklu_receteler", {}).pop(adi, None)
+    veri_kaydet(s["tenant_id"], v)
+    return JSONResponse({"ok": True})
+
+# Reçete Kaydet
+@app.post("/api/recete-kaydet")
+async def api_recete_kaydet(request: Request):
+    s = session_al(request)
+    if not s: return JSONResponse({"error": "Yetkisiz"}, status_code=401)
+    data = await request.json()
+    v = veri_al(s["tenant_id"])
+    adi = data.get("adi", "").strip()
+    oranlar = data.get("oranlar", {})
+    if not adi: return JSONResponse({"error": "Reçete adı zorunlu"}, status_code=400)
+    v.setdefault("coklu_receteler", {})[adi] = {"oranlar": oranlar}
+    # Yeni malzemeleri stok listesine ekle
+    for m in oranlar:
+        if m not in v.get("stoklar", {}):
+            v.setdefault("stoklar", {})[m] = 0.0
+    veri_kaydet(s["tenant_id"], v)
     return JSONResponse({"ok": True})
