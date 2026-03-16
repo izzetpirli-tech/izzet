@@ -36,6 +36,32 @@
         </div>
     </div>
 
+
+        <!-- Ürün Etiketleri -->
+        <div class="card-erp mb-4">
+            <h3 style="font-size:15px; font-weight:700; margin-bottom:20px;">🏷️ Ürün Etiket Ataması</h3>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">Her ürün için HTML etiket dosyası yükle. Üretim yapınca o ürünün etiketi açılır.</p>
+            
+            <div style="margin-bottom:16px;">
+                <label class="form-label-erp">Ürün Seç</label>
+                <select id="etiket_urun" class="form-control-erp">
+                    <option value="">— Seçiniz —</option>
+                </select>
+            </div>
+            <div style="margin-bottom:16px;">
+                <label class="form-label-erp">Etiket HTML Dosyası</label>
+                <input type="file" id="etiket_dosya" accept=".html" style="display:none;" onchange="etiketDosyaSecildi()">
+                <button class="btn-ghost" style="width:100%;" onclick="document.getElementById('etiket_dosya').click()">📂 HTML Dosyası Seç</button>
+                <div id="etiket_dosya_adi" style="font-size:12px; color:var(--text-muted); margin-top:6px;"></div>
+            </div>
+            <button class="btn-primary-erp" style="width:100%;" onclick="etiketKaydet()">💾 Etiketi Kaydet</button>
+
+            <div style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
+                <div style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:10px;">ATANMIŞ ETİKETLER</div>
+                <div id="etiket_listesi_div"></div>
+            </div>
+        </div>
+
     <!-- Sensör Ayarları -->
     <div class="col-lg-7">
         <div class="card-erp mb-4">
@@ -134,6 +160,49 @@ async function sensorEkle() {
         document.getElementById('s_id').value = '';
         document.getElementById('s_adi').value = '';
         sensorleriYukle();
+
+let etiketDosyaIcerik = '';
+
+async function etiketUrunleriYukle() {
+    const r = await api('GET', '/api/receteler');
+    const urunler = Object.keys(r || {});
+    const sel = document.getElementById('etiket_urun');
+    sel.innerHTML = '<option value="">— Seçiniz —</option>' + urunler.map(u => `<option value="${u}">${u}</option>`).join('');
+    etiketListesiYukle();
+}
+
+async function etiketListesiYukle() {
+    const r = await api('GET', '/api/etiket/listele');
+    const el = document.getElementById('etiket_listesi_div');
+    if (!r.length) { el.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Henüz etiket atanmamış</div>'; return; }
+    el.innerHTML = r.map(u => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:#ffffff08; border-radius:8px; margin-bottom:6px;">
+            <span style="font-size:13px; font-weight:600;">🏷️ ${u}</span>
+            <a href="/etiket/yazdir/${encodeURIComponent(u)}" target="_blank" class="btn-ghost" style="text-decoration:none; padding:4px 12px; font-size:12px;">🖨️ Test</a>
+        </div>
+    `).join('');
+}
+
+function etiketDosyaSecildi() {
+    const dosya = document.getElementById('etiket_dosya').files[0];
+    if (!dosya) return;
+    document.getElementById('etiket_dosya_adi').textContent = '✅ ' + dosya.name;
+    const reader = new FileReader();
+    reader.onload = e => { etiketDosyaIcerik = e.target.result; };
+    reader.readAsText(dosya);
+}
+
+async function etiketKaydet() {
+    const urun = document.getElementById('etiket_urun').value;
+    if (!urun) return showToast('Ürün seçin!', 'error');
+    if (!etiketDosyaIcerik) return showToast('HTML dosyası seçin!', 'error');
+    const r = await api('POST', '/api/etiket/kaydet', {urun_adi: urun, etiket_html: etiketDosyaIcerik});
+    if (r.ok) { showToast(`✅ ${urun} etiketi kaydedildi!`); etiketListesiYukle(); }
+    else showToast(r.error || 'Hata!', 'error');
+}
+
+etiketUrunleriYukle();
+
     } else {
         showToast(r.error || 'Hata!', 'error');
     }
@@ -171,5 +240,48 @@ async function sensorleriYukle() {
 }
 
 sensorleriYukle();
+
+let etiketDosyaIcerik = '';
+
+async function etiketUrunleriYukle() {
+    const r = await api('GET', '/api/receteler');
+    const urunler = Object.keys(r || {});
+    const sel = document.getElementById('etiket_urun');
+    sel.innerHTML = '<option value="">— Seçiniz —</option>' + urunler.map(u => `<option value="${u}">${u}</option>`).join('');
+    etiketListesiYukle();
+}
+
+async function etiketListesiYukle() {
+    const r = await api('GET', '/api/etiket/listele');
+    const el = document.getElementById('etiket_listesi_div');
+    if (!r.length) { el.innerHTML = '<div style="color:var(--text-muted); font-size:13px;">Henüz etiket atanmamış</div>'; return; }
+    el.innerHTML = r.map(u => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:#ffffff08; border-radius:8px; margin-bottom:6px;">
+            <span style="font-size:13px; font-weight:600;">🏷️ ${u}</span>
+            <a href="/etiket/yazdir/${encodeURIComponent(u)}" target="_blank" class="btn-ghost" style="text-decoration:none; padding:4px 12px; font-size:12px;">🖨️ Test</a>
+        </div>
+    `).join('');
+}
+
+function etiketDosyaSecildi() {
+    const dosya = document.getElementById('etiket_dosya').files[0];
+    if (!dosya) return;
+    document.getElementById('etiket_dosya_adi').textContent = '✅ ' + dosya.name;
+    const reader = new FileReader();
+    reader.onload = e => { etiketDosyaIcerik = e.target.result; };
+    reader.readAsText(dosya);
+}
+
+async function etiketKaydet() {
+    const urun = document.getElementById('etiket_urun').value;
+    if (!urun) return showToast('Ürün seçin!', 'error');
+    if (!etiketDosyaIcerik) return showToast('HTML dosyası seçin!', 'error');
+    const r = await api('POST', '/api/etiket/kaydet', {urun_adi: urun, etiket_html: etiketDosyaIcerik});
+    if (r.ok) { showToast(`✅ ${urun} etiketi kaydedildi!`); etiketListesiYukle(); }
+    else showToast(r.error || 'Hata!', 'error');
+}
+
+etiketUrunleriYukle();
+
 </script>
 {% endblock %}

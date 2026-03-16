@@ -542,6 +542,95 @@ async def api_makine_sil(mid: int, request: Request):
     conn.close()
     return JSONResponse({"ok": True})
 
+
+
+# ══════════════════════════════════════════
+#  API — ÜRÜN ETİKETLERİ
+# ══════════════════════════════════════════
+def etiket_tablosu_olustur():
+    conn = db_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS urun_etiketleri (
+            id SERIAL PRIMARY KEY,
+            tenant_id INTEGER NOT NULL,
+            urun_adi TEXT NOT NULL,
+            etiket_html TEXT NOT NULL,
+            olusturma TIMESTAMP DEFAULT NOW(),
+            UNIQUE(tenant_id, urun_adi)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+@app.post("/api/etiket/kaydet")
+async def api_etiket_kaydet(request: Request):
+    s = session_al(request)
+    if not s: return JSONResponse({"error": "Yetkisiz"}, status_code=401)
+    data = await request.json()
+    urun_adi = data.get("urun_adi", "").strip()
+    etiket_html = data.get("etiket_html", "").strip()
+    if not urun_adi or not etiket_html:
+        return JSONResponse({"error": "Ürün adı ve etiket zorunlu"}, status_code=400)
+    etiket_tablosu_olustur()
+    conn = db_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO urun_etiketleri (tenant_id, urun_adi, etiket_html)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (tenant_id, urun_adi) DO UPDATE SET etiket_html=%s, olusturma=NOW()
+    """, (s["tenant_id"], urun_adi, etiket_html, etiket_html))
+    conn.commit()
+    conn.close()
+    return JSONResponse({"ok": True})
+
+@app.get("/api/etiket/listele")
+async def api_etiket_listele(request: Request):
+    s = session_al(request)
+    if not s: return JSONResponse({"error": "Yetkisiz"}, status_code=401)
+    etiket_tablosu_olustur()
+    conn = db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT urun_adi FROM urun_etiketleri WHERE tenant_id=%s ORDER BY urun_adi", (s["tenant_id"],))
+    rows = [r["urun_adi"] for r in cur.fetchall()]
+    conn.close()
+    return JSONResponse(rows)
+
+@app.get("/etiket/yazdir/{urun_adi}")
+async def etiket_yazdir(urun_adi: str, request: Request, parti: str = "", tarih: str = ""):
+    s = session_al(request)
+    if not s: return RedirectResponse("/giris")
+    from urllib.parse import unquote
+    urun_adi = unquote(urun_adi)
+    etiket_tablosu_olustur()
+    conn = db_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT etiket_html FROM urun_etiketleri WHERE tenant_id=%s AND urun_adi=%s", (s["tenant_id"], urun_adi))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return HTMLResponse("<h3>Bu ürün için etiket tanımlanmamış.</h3>")
+    
+    # Parti ve SKT hesapla
+    if not tarih: tarih = bugun()
+    try:
+        p = tarih.split(".")
+        uretim_dt = datetime(int(p[2]), int(p[1]), int(p[0]))
+    except:
+        uretim_dt = datetime.now()
+    ay = uretim_dt.month + 6
+    yil = uretim_dt.year
+    if ay > 12: ay -= 12; yil += 1
+    skt = f"{uretim_dt.day:02d}.{ay:02d}.{yil}"
+    if not parti: parti = "URT-" + datetime.now().strftime("%y%m%d-%H%M")
+    
+    # HTML içinde parti ve SKT değerlerini değiştir
+    html = row["etiket_html"]
+    html = html.replace("15.09.2026", skt)
+    html = html.replace("URT-260316-0611", parti)
+    
+    return HTMLResponse(html)
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
