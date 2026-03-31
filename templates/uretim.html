@@ -111,6 +111,18 @@
     </div>
 </div>
 
+
+<!-- Üretim Detay Modal -->
+<div id="detay_modal" style="display:none; position:fixed; inset:0; background:#00000090; z-index:2000; align-items:center; justify-content:center;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:500px; margin:16px; max-height:90vh; overflow-y:auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <h3 style="font-size:16px; font-weight:700; margin:0;">🔍 Üretim Detayı</h3>
+            <button class="btn-ghost" onclick="document.getElementById('detay_modal').style.display='none'">✕</button>
+        </div>
+        <div id="detay_icerik"></div>
+    </div>
+</div>
+
 <!-- Gramaj Modal -->
 <div id="gramaj_modal" style="display:none; position:fixed; inset:0; background:#00000090; z-index:2000; align-items:center; justify-content:center;">
     <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:340px; margin:16px;">
@@ -294,6 +306,43 @@ function etiketOnizle(u) {
     document.getElementById('gramaj_modal').style.display = 'flex';
 }
 
+
+function detayGoster(h) {
+    const kullanilan = h.kullanilan_malzemeler || {};
+    const items = Object.entries(kullanilan);
+    document.getElementById('detay_icerik').innerHTML = `
+        <div style="margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                <span style="color:var(--text-muted); font-size:13px;">Parti No</span>
+                <span style="font-weight:700;">${h.parti||'—'}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                <span style="color:var(--text-muted); font-size:13px;">Ürün</span>
+                <span style="font-weight:700;">${h.malzeme||'—'}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                <span style="color:var(--text-muted); font-size:13px;">Üretim Miktarı</span>
+                <span style="font-weight:700;">${h.miktar||0} KG</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
+                <span style="color:var(--text-muted); font-size:13px;">Tarih</span>
+                <span style="font-weight:700;">${h.tarih||'—'}</span>
+            </div>
+        </div>
+        <div style="border-top:1px solid var(--border); padding-top:16px;">
+            <div style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:12px;">Kullanılan Malzemeler</div>
+            ${items.length ? `
+            <table class="tablo">
+                <thead><tr><th>Malzeme</th><th style="text-align:right;">Kullanılan (KG)</th></tr></thead>
+                <tbody>
+                    ${items.map(([m,kg]) => `<tr><td style="font-weight:500;">${m}</td><td style="text-align:right; font-weight:700;">${Number(kg).toFixed(3)} KG</td></tr>`).join('')}
+                </tbody>
+            </table>` : '<div style="color:var(--text-muted); font-size:13px;">Bu üretim için detay kaydı yok (eski kayıt)</div>'}
+        </div>
+    `;
+    document.getElementById('detay_modal').style.display = 'flex';
+}
+
 function gramajSecEtiketAc(gramaj) {
     document.getElementById('gramaj_modal').style.display = 'none';
     const u = window._sonUretim;
@@ -324,7 +373,10 @@ function uretimListesiGoster(hareketler) {
             <td style="font-weight:500;">${h.malzeme||'—'}</td>
             <td><span class="badge-uretim">${(h.miktar||0).toFixed(1)} KG</span></td>
             <td style="font-size:12px;color:var(--text-muted);">${h.parti||'—'}</td>
-            <td><button class="btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="window.open('/etiket/yazdir/'+encodeURIComponent('${h.malzeme}')+'?parti=${h.parti}&tarih=${h.tarih}','_blank')">🖨️</button></td>
+            <td style="display:flex; gap:4px;">
+                <button class="btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="window.open('/etiket/yazdir/'+encodeURIComponent('${h.malzeme}')+'?parti=${h.parti}&tarih=${h.tarih}','_blank')">🖨️</button>
+                <button class="btn-ghost" style="padding:4px 10px;font-size:12px;" onclick='detayGoster(${JSON.stringify(h).replace(/'/g,"\\'")})'>🔍</button>
+            </td>
         </tr>`).join('')}
     </tbody></table>`;
 }
