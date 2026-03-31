@@ -114,10 +114,13 @@
 
 <!-- Üretim Detay Modal -->
 <div id="detay_modal" style="display:none; position:fixed; inset:0; background:#00000090; z-index:2000; align-items:center; justify-content:center;">
-    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:500px; margin:16px; max-height:90vh; overflow-y:auto;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:20px; padding:32px; width:100%; max-width:560px; margin:16px; max-height:90vh; overflow-y:auto;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
             <h3 style="font-size:16px; font-weight:700; margin:0;">🔍 Üretim Detayı</h3>
-            <button class="btn-ghost" onclick="document.getElementById('detay_modal').style.display='none'">✕</button>
+            <div style="display:flex; gap:8px;">
+                <button class="btn-primary-erp" onclick="pdfIndir()" style="padding:6px 14px; font-size:13px;">📄 PDF</button>
+                <button class="btn-ghost" onclick="document.getElementById('detay_modal').style.display='none'">✕</button>
+            </div>
         </div>
         <div id="detay_icerik"></div>
     </div>
@@ -307,40 +310,97 @@ function etiketOnizle(u) {
 }
 
 
+let _aktifDetay = null;
+
 function detayGoster(h) {
-    const kullanilan = h.kullanilan_malzemeler || {};
-    const items = Object.entries(kullanilan);
+    _aktifDetay = h;
+    const kullanilan = Array.isArray(h.kullanilan_malzemeler) ? h.kullanilan_malzemeler : [];
+    
     document.getElementById('detay_icerik').innerHTML = `
-        <div style="margin-bottom:16px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                <span style="color:var(--text-muted); font-size:13px;">Parti No</span>
-                <span style="font-weight:700;">${h.parti||'—'}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                <span style="color:var(--text-muted); font-size:13px;">Ürün</span>
-                <span style="font-weight:700;">${h.malzeme||'—'}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                <span style="color:var(--text-muted); font-size:13px;">Üretim Miktarı</span>
-                <span style="font-weight:700;">${h.miktar||0} KG</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
-                <span style="color:var(--text-muted); font-size:13px;">Tarih</span>
-                <span style="font-weight:700;">${h.tarih||'—'}</span>
+        <div style="margin-bottom:16px; background:#ffffff08; border-radius:10px; padding:14px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div><div style="font-size:10px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Parti No</div><div style="font-weight:700; margin-top:2px;">${h.parti||'—'}</div></div>
+                <div><div style="font-size:10px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Ürün</div><div style="font-weight:700; margin-top:2px;">${h.malzeme||'—'}</div></div>
+                <div><div style="font-size:10px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Üretim Miktarı</div><div style="font-weight:700; margin-top:2px;">${h.miktar||0} KG</div></div>
+                <div><div style="font-size:10px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Tarih</div><div style="font-weight:700; margin-top:2px;">${h.tarih||'—'}</div></div>
             </div>
         </div>
-        <div style="border-top:1px solid var(--border); padding-top:16px;">
-            <div style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:12px;">Kullanılan Malzemeler</div>
-            ${items.length ? `
-            <table class="tablo">
-                <thead><tr><th>Malzeme</th><th style="text-align:right;">Kullanılan (KG)</th></tr></thead>
-                <tbody>
-                    ${items.map(([m,kg]) => `<tr><td style="font-weight:500;">${m}</td><td style="text-align:right; font-weight:700;">${Number(kg).toFixed(3)} KG</td></tr>`).join('')}
-                </tbody>
-            </table>` : '<div style="color:var(--text-muted); font-size:13px;">Bu üretim için detay kaydı yok (eski kayıt)</div>'}
-        </div>
+        <div style="font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px;">Kullanılan Malzemeler — Parti Bazında</div>
+        ${kullanilan.length ? `
+        <table class="tablo">
+            <thead><tr>
+                <th>Malzeme</th>
+                <th>Parti No</th>
+                <th>Fatura</th>
+                <th>Tarih</th>
+                <th style="text-align:right;">Miktar</th>
+            </tr></thead>
+            <tbody>
+                ${kullanilan.map(k => `<tr>
+                    <td style="font-weight:600;">${k.malzeme||'—'}</td>
+                    <td style="font-size:12px; color:var(--text-muted);">${k.parti||'—'}</td>
+                    <td style="font-size:12px; color:var(--text-muted);">${k.fatura||'—'}</td>
+                    <td style="font-size:12px; color:var(--text-muted);">${k.tarih||'—'}</td>
+                    <td style="text-align:right; font-weight:700;">${Number(k.miktar||0).toFixed(3)} KG</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>` : '<div style="color:var(--text-muted); font-size:13px; padding:16px 0;">Bu üretim için detay kaydı yok (eski kayıt)</div>'}
     `;
     document.getElementById('detay_modal').style.display = 'flex';
+}
+
+function pdfIndir() {
+    const h = _aktifDetay;
+    if (!h) return;
+    const kullanilan = Array.isArray(h.kullanilan_malzemeler) ? h.kullanilan_malzemeler : [];
+    const w = window.open('', '_blank');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        @media print { @page { margin: 15mm; } }
+        body { font-family: Arial, sans-serif; color: #000; padding: 20px; }
+        h1 { font-size: 18px; font-weight: 900; margin-bottom: 4px; }
+        .sub { font-size: 12px; color: #666; margin-bottom: 20px; }
+        .bilgi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; background: #f5f5f5; padding: 14px; border-radius: 6px; }
+        .bilgi-item label { font-size: 10px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+        .bilgi-item div { font-size: 14px; font-weight: 700; margin-top: 2px; }
+        h2 { font-size: 13px; font-weight: 700; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid black; padding-bottom: 4px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th { text-align: left; padding: 8px 10px; background: #000; color: white; font-size: 11px; }
+        td { padding: 8px 10px; border-bottom: 1px solid #ddd; }
+        tr:last-child td { border-bottom: none; }
+        .footer { margin-top: 30px; font-size: 10px; color: #888; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }
+        .print-btn { position: fixed; top: 16px; right: 16px; padding: 10px 20px; background: #000; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+        @media print { .print-btn { display: none; } }
+    </style>
+    </head><body>
+    <button class="print-btn" onclick="window.print()">🖨️ Yazdır / PDF Kaydet</button>
+    <h1>🔍 İzlenebilirlik Raporu</h1>
+    <div class="sub">Elfiga Mantı — Üretim Detay Formu</div>
+    <div class="bilgi-grid">
+        <div class="bilgi-item"><label>Parti No</label><div>${h.parti||'—'}</div></div>
+        <div class="bilgi-item"><label>Ürün</label><div>${h.malzeme||'—'}</div></div>
+        <div class="bilgi-item"><label>Üretim Miktarı</label><div>${h.miktar||0} KG</div></div>
+        <div class="bilgi-item"><label>Üretim Tarihi</label><div>${h.tarih||'—'}</div></div>
+    </div>
+    <h2>Kullanılan Hammaddeler — Parti Bazında</h2>
+    ${kullanilan.length ? `
+    <table>
+        <thead><tr><th>Malzeme</th><th>Parti No</th><th>Fatura No</th><th>Giriş Tarihi</th><th style="text-align:right;">Kullanılan (KG)</th></tr></thead>
+        <tbody>
+            ${kullanilan.map(k => `<tr>
+                <td><strong>${k.malzeme||'—'}</strong></td>
+                <td>${k.parti||'—'}</td>
+                <td>${k.fatura||'—'}</td>
+                <td>${k.tarih||'—'}</td>
+                <td style="text-align:right; font-weight:700;">${Number(k.miktar||0).toFixed(3)} KG</td>
+            </tr>`).join('')}
+        </tbody>
+    </table>` : '<p style="color:#666; margin-top:10px;">Bu üretim için detay kaydı bulunmuyor (eski kayıt).</p>'}
+    <div class="footer">Elfiga Mantı — Yenimahalle Mah. Dr. Ömer Besimpaşa Cad. No:269/A Beykoz / İstanbul — www.elfigamanti.com.tr<br>Rapor oluşturma tarihi: ${new Date().toLocaleDateString('tr-TR')}</div>
+    </body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 500);
 }
 
 function gramajSecEtiketAc(gramaj) {
