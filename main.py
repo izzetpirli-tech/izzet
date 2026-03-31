@@ -334,8 +334,29 @@ async def api_uretim(request: Request):
         if oran > 0:
             v["stoklar"][m] = max(0, v["stoklar"].get(m, 0) - kg * oran)
     v["hazir_manti_stok"] = v.get("hazir_manti_stok", 0) + kg
-    # Kullanılan malzemeleri hesapla ve kaydet
-    kullanilan = {m: round(kg * oran, 3) for m, oran in oranlar.items() if oran > 0}
+    # Kullanılan malzemeleri parti bazında hesapla
+    kullanilan = []
+    TOLERANS = 0.001
+    for m, oran in oranlar.items():
+        if oran <= 0: continue
+        lazim = kg * oran
+        mevcut_partiler = sorted(
+            [p for p in v.get("detayli_stok", []) if p.get("malzeme") == m and p.get("kalan", 0) > TOLERANS],
+            key=lambda x: x.get("tarih", "")
+        )
+        kalan_lazim = lazim
+        for p in mevcut_partiler:
+            if kalan_lazim <= TOLERANS: break
+            alinan = min(kalan_lazim, p["kalan"])
+            kullanilan.append({
+                "malzeme": m,
+                "miktar": round(alinan, 3),
+                "parti": p.get("parti", "-"),
+                "fatura": p.get("fatura", "-"),
+                "tarih": p.get("tarih", "-")
+            })
+            kalan_lazim -= alinan
+
     v.setdefault("hareketler", []).insert(0, {
         "tarih": tarih, "malzeme": recete_adi, "miktar": kg,
         "fiyat": 0, "parti": parti, "fatura": "-", "islem": "Üretim",
